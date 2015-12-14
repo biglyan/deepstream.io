@@ -63,7 +63,9 @@ Cluster.prototype.close = function() {
 Cluster.prototype._listenToRequests = function() {
 	this._httpServer.on( 'request', function( request, response ) {
 		if( request.url === '/available-servers' ) {
-			response.end( JSON.stringify( this._servers ) )
+			response.end( JSON.stringify( this._servers ) );
+		} else if( request.url === '/score' ) {
+			response.end( JSON.stringify( this._getScoreParams() ) );
 		}
 	}.bind( this ) );
 };
@@ -123,6 +125,15 @@ Cluster.prototype._notifyOfExistence = function() {
 **/
 Cluster.prototype._validateServerConfig = function( serverConfig ) {
 	return true;
+};
+
+/**
+* @private
+**/
+Cluster.prototype._getScoreParams = function() {
+	return {
+		score: 5
+	}
 };
 
 module.exports = Cluster;
