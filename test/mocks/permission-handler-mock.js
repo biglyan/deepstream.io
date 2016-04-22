@@ -1,15 +1,24 @@
 var PermissionHandlerMock = function() {
+	this.reset();
+};
+
+PermissionHandlerMock.prototype.reset = function() {
 	this.nextUserValidationResult = true;
 	this.lastUserValidationQueryArgs = null;
 	this.nextCanPerformActionResult = true;
 	this.lastCanPerformActionQueryArgs = null;
+	this.sendNextValidAuthWithData = false;
 	this.onClientDisconnectCalledWith = null;
 };
 
 PermissionHandlerMock.prototype.isValidUser = function( handshakeData, authData, callback ) {
 	this.lastUserValidationQueryArgs = arguments;
 	if( this.nextUserValidationResult === true ) {
-		callback( null, 'test-user' );
+		if( this.sendNextValidAuthWithData === true ) {
+			callback( null, 'test-user', 'test-data' );
+		} else {
+			callback( null, 'test-user' );
+		}
 	} else {
 		callback( 'Invalid User' );
 	}

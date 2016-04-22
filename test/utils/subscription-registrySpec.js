@@ -7,13 +7,13 @@ var SubscriptionRegistry = require( '../../src/utils/subscription-registry' ),
 	_msg = require( '../test-helper/test-helper' ).msg,
 	options = { logger: { log: function( level, event, message ){ lastLogEvent = event; } } },
 	subscriptionRegistry = new SubscriptionRegistry( options, 'E' ),
-	subscriptionListenerMock = { 
+	subscriptionListenerMock = {
 		onSubscriptionMade: jasmine.createSpy( 'onSubscriptionMade' ),
 		onSubscriptionRemoved: jasmine.createSpy( 'onSubscriptionRemoved' )
 	};
-	
+
 	subscriptionRegistry.setSubscriptionListener( subscriptionListenerMock );
-	
+
 describe( 'subscription-registry manages subscriptions', function(){
 
 	var socketWrapperA = new SocketWrapper( new SocketMock(), socketWrapperOptions ),
@@ -30,9 +30,9 @@ describe( 'subscription-registry manages subscriptions', function(){
 	});
 
 	it( 'doesn\'t subscribe twice to the same name', function(){
-		expect( lastLogEvent ).toBe( 'SUBSCRIBE' );
+		expect( lastLogEvent ).toBe( 'S' );
 		subscriptionRegistry.subscribe( 'someName', socketWrapperA );
-		expect( subscriptionListenerMock.onSubscriptionMade.calls.length ).toBe( 1 );
+		expect( subscriptionListenerMock.onSubscriptionMade.calls.count() ).toBe( 1 );
 		expect( socketWrapperA.socket.lastSendMessage ).toBe( _msg( 'E|E|MULTIPLE_SUBSCRIPTIONS|someName+' ) );
 		expect( lastLogEvent ).toBe( 'MULTIPLE_SUBSCRIPTIONS' );
 	});
@@ -55,7 +55,7 @@ describe( 'subscription-registry manages subscriptions', function(){
 
 	it( 'returns a random subscribed socket', function(){
 		expect( subscriptionRegistry.getSubscribers( 'someName' ) ).toEqual([ socketWrapperA, socketWrapperB ]);
-		
+
 		var returnedA = false,
 			returnedB = false,
 			randomSubscriber,
@@ -83,14 +83,14 @@ describe( 'subscription-registry manages subscriptions', function(){
 		subscriptionRegistry.sendToSubscribers( 'someName', _msg( 'msg4+' ) );
 		expect( socketWrapperA.socket.lastSendMessage ).toBe( _msg( 'msg4+' ) );
 		expect( socketWrapperB.socket.lastSendMessage ).toBe( _msg( 'msg4+' ) );
-		
+
 		subscriptionRegistry.unsubscribe( 'someName', socketWrapperB );
 		expect( socketWrapperB.socket.lastSendMessage ).toBe( _msg( 'E|A|US|someName+' ) );
 		subscriptionRegistry.sendToSubscribers( 'someName', _msg( 'msg5+' ) );
 		expect( socketWrapperA.socket.lastSendMessage ).toBe( _msg( 'msg5+' ) );
 		expect( socketWrapperB.socket.lastSendMessage ).toBe( _msg( 'E|A|US|someName+' ) );
 	});
-	
+
 	it( 'handles unsubscribes for non existant topics', function(){
 		subscriptionRegistry.unsubscribe( 'giberish', socketWrapperB );
 		expect( socketWrapperB.socket.lastSendMessage ).toBe( _msg( 'E|E|NOT_SUBSCRIBED|giberish+') );
@@ -109,7 +109,7 @@ describe( 'subscription-registry manages subscriptions', function(){
 
 		subscriptionRegistry.sendToSubscribers( 'someName', _msg( 'msg7+' ) );
 		expect( socketWrapperA.socket.lastSendMessage ).toBe( _msg( 'msg7+' ) );
-		
+
 		expect( subscriptionListenerMock.onSubscriptionRemoved ).not.toHaveBeenCalled();
 		subscriptionRegistry.unsubscribe( 'someName', socketWrapperA );
 		expect( subscriptionListenerMock.onSubscriptionRemoved ).toHaveBeenCalledWith( 'someName', socketWrapperA );
@@ -124,7 +124,7 @@ describe( 'subscription-registry manages subscriptions', function(){
 	it( 'removes all subscriptions on socket.close', function(){
 		subscriptionRegistry.subscribe( 'nameA', socketWrapperA );
 		subscriptionRegistry.subscribe( 'nameB', socketWrapperA );
-		
+
 		subscriptionRegistry.sendToSubscribers( 'nameA', _msg( 'msgA+' ) );
 		expect( socketWrapperA.socket.lastSendMessage ).toBe( _msg( 'msgA+' ) );
 
@@ -138,5 +138,54 @@ describe( 'subscription-registry manages subscriptions', function(){
 
 		subscriptionRegistry.sendToSubscribers( 'nameB', _msg( 'msgD+' ) );
 		expect( socketWrapperA.socket.lastSendMessage ).toBe( _msg( 'msgB+' ) );
+	});
+});
+
+describe( 'subscription-registry allows custom actions to be set', function(){
+
+	var subscriptionRegistry = new SubscriptionRegistry( options, 'E' );
+	var socketWrapper = new SocketWrapper( new SocketMock(), socketWrapperOptions );
+
+	it( 'overrides the default actions', function(){
+		subscriptionRegistry.setAction( 'subscribe', 'make-aware' );
+		subscriptionRegistry.setAction( 'unsubscribe', 'be-unaware' );
+		subscriptionRegistry.setAction( 'multiple_subscriptions', 'too-aware' );
+		subscriptionRegistry.setAction( 'not_subscribed', 'unaware' );
+	});
+
+	it( 'subscribes to names', function(){
+		subscriptionRegistry.subscribe( 'someName', socketWrapper );
+		expect( socketWrapper.socket.lastSendMessage ).toBe( _msg( 'E|A|make-aware|someName+' ) );
+	});
+
+	it( 'doesn\'t subscribe twice to the same name', function(){
+		expect( lastLogEvent ).toBe( 'make-aware' );
+		subscriptionRegistry.subscribe( 'someName', socketWrapper );
+		expect( socketWrapper.socket.lastSendMessage ).toBe( _msg( 'E|E|too-aware|someName+' ) );
+		expect( lastLogEvent ).toBe( 'too-aware' );
+	});
+
+	it( 'unsubscribes', function(){
+		subscriptionRegistry.unsubscribe( 'someName', socketWrapper );
+		expect( socketWrapper.socket.lastSendMessage ).toBe( _msg( 'E|A|be-unaware|someName+' ) );
+	});
+
+	it( 'handles unsubscribes for non existant subscriptions', function(){
+		var newSocketWrapper = new SocketWrapper( new SocketMock(), socketWrapperOptions );
+		subscriptionRegistry.unsubscribe( 'someName', newSocketWrapper );
+		expect( newSocketWrapper.socket.lastSendMessage ).toBe( _msg( 'E|E|unaware|someName+' ) );
+	});
+});
+
+describe( 'subscription-registry unbinds all events on unsubscribe', function(){
+
+	var subscriptionRegistry = new SubscriptionRegistry( options, 'E' );
+	var socketWrapper = new SocketWrapper( new SocketMock(), socketWrapperOptions );
+
+	it( 'subscribes and unsubscribes 30 times', function(){
+		for( var i = 0; i < 30; i++ ) {
+			subscriptionRegistry.subscribe( 'repeated-test', socketWrapper );
+			subscriptionRegistry.unsubscribe( 'repeated-test', socketWrapper );
+		}
 	});
 });

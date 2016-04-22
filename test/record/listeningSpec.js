@@ -45,7 +45,7 @@ describe( 'record handler handles messages', function(){
 	       data: [ 'user\/.*' ]
 	    });
 	    
-	    expect( listeningClient.socket.getMsg( 2 ) ).toBe( msg( 'R|A|S|user\/.*+' ) );
+	    expect( listeningClient.socket.getMsg( 2 ) ).toBe( msg( 'R|A|L|user\/.*+' ) );
         expect( listeningClient.socket.getMsg( 1 ) ).toBe( msg( 'R|SP|user\/.*|user/A+' ) );
         expect( listeningClient.socket.getMsg( 0 ) ).toBe( msg( 'R|SP|user\/.*|user/B+' ) );
 	});
@@ -60,6 +60,17 @@ describe( 'record handler handles messages', function(){
 	    expect( listeningClient.socket.lastSendMessage ).toBe( msg( 'R|SP|user\/.*|user/C+' ) );
 	});
 	
+	it( 'returns a snapshot of the all records that match the pattern', function(){
+		recordHandler.handle( subscribingClient, {
+			raw: msg( 'R|LSN|user\/*' ),
+			topic: 'R',
+			action: 'LSN',
+			data: [ 'user\/*' ]
+		});
+
+		expect( subscribingClient.socket.lastSendMessage ).toBe( msg( 'R|SF|user/*|["user/A","user/B","user/C"]+' ));
+	});
+
 	it( 'doesn\'t send messages for subsequent subscriptions', function(){
 	     expect( listeningClient.socket.sendMessages.length ).toBe( 4 );
 	     recordHandler.handle( subscribingClient, {
@@ -77,7 +88,7 @@ describe( 'record handler handles messages', function(){
 	       data: [ 'user\/.*' ]
 	    });
 	    
-	    expect( listeningClient.socket.lastSendMessage ).toBe( msg( 'R|A|US|user\/.*+' ) );
+	    expect( listeningClient.socket.lastSendMessage ).toBe( msg( 'R|A|UL|user\/.*+' ) );
 	    expect( listeningClient.socket.sendMessages.length ).toBe( 5 );
 	    
 	     recordHandler.handle( subscribingClient, {

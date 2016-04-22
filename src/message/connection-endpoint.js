@@ -1,6 +1,7 @@
 var C = require( '../constants/constants' ),
 	Cluster = require( './cluster' ),
 	messageParser = require( './message-parser' ),
+	messageBuilder = require( './message-builder' ),
 	SocketWrapper = require( './socket-wrapper' ),
 	engine = require('engine.io'),
 	TcpEndpoint = require( '../tcp/tcp-endpoint' ),
@@ -18,9 +19,9 @@ var C = require( '../constants/constants' ),
  * forwards messages it receives from authenticated sockets.
  *
  * @constructor
- * 
+ *
  * @extends events.EventEmitter
- * 
+ *
  * @param {Object} options the extended default options
  * @param {Function} readyCallback will be invoked once both the engineIo and the tcp connection are established
  */
@@ -28,34 +29,41 @@ var ConnectionEndpoint = function( options, readyCallback ) {
 	this._options = options;
 	this._readyCallback = readyCallback;
 
-	// Initialise engine.io's server - a combined http and websocket server for browser connections
-	this._engineIoReady = false;
-	this._engineIoServerClosed = false;
-	this._server = null;
-	if( this._isHttpsServer() ) {
-		var httpsOptions = {
-			key: this._options.sslKey,
-			cert: this._options.sslCert
-		};
-		if (this._options.sslCa) {
-			httpsOptions.ca = this._options.sslCa;
-		}
-		this._server = https.createServer(httpsOptions);
+	if( !options.webServerEnabled && !options.tcpServerEnabled ) {
+		throw new Error( 'Can\'t start deepstream with both webserver and tcp disabled' );
 	}
-	else {
-		this._server = http.createServer();
-	}
-	this._server.listen( this._options.port, this._options.host, this._checkReady.bind( this, ENGINE_IO ) );
-	
-	this._engineIo = engine.attach( this._server );
-	this._engineIo.on( 'error', this._onError.bind( this ) );
-	this._engineIo.on( 'connection', this._onConnection.bind( this, ENGINE_IO ) );
 
-	// Initialise a tcp server to facilitate fast and compatible communication with backend systems
-	this._tcpEndpointReady = false;
-	this._tcpEndpoint = new TcpEndpoint( options, this._checkReady.bind( this, TCP_ENDPOINT ) );
-	this._tcpEndpoint.on( 'error', this._onError.bind( this ) );
-	this._tcpEndpoint.on( 'connection', this._onConnection.bind( this, TCP_ENDPOINT ) );
+	if( options.webServerEnabled ) {
+		// Initialise engine.io's server - a combined http and websocket server for browser connections
+		this._engineIoReady = false;
+		this._engineIoServerClosed = false;
+
+		if( this._options.httpServer ) {
+			this._server = this._options.httpServer;
+			this._engineIo = engine.attach( this._server, { path: this._options.urlPath });
+		} else {
+			this._server = this._createHttpServer();
+			this._server.listen( this._options.port, this._options.host );
+			this._engineIo = engine.attach( this._server );
+		}
+
+		if( this._server.listening ) {
+			this._checkReady( ENGINE_IO );
+		} else {
+			this._server.once( 'listening', this._checkReady.bind( this, ENGINE_IO ) );
+  		}
+
+		this._engineIo.on( 'error', this._onError.bind( this ) );
+		this._engineIo.on( 'connection', this._onConnection.bind( this, ENGINE_IO ) );
+	}
+
+	if( options.tcpServerEnabled ) {
+		// Initialise a tcp server to facilitate fast and compatible communication with backend systems
+		this._tcpEndpointReady = false;
+		this._tcpEndpoint = new TcpEndpoint( options, this._checkReady.bind( this, TCP_ENDPOINT ) );
+		this._tcpEndpoint.on( 'error', this._onError.bind( this ) );
+		this._tcpEndpoint.on( 'connection', this._onConnection.bind( this, TCP_ENDPOINT ) );
+	}
 
 	this._cluster = new Cluster( options, this._server,this._engineIo, this._tcpEndpoint );
 
@@ -77,7 +85,7 @@ util.inherits( ConnectionEndpoint, events.EventEmitter );
  * @param   {String} message the raw message as sent by the client
  *
  * @public
- * 
+ *
  * @returns {void}
  */
 ConnectionEndpoint.prototype.onMessage = function( socketWrapper, message ) {};
@@ -85,22 +93,56 @@ ConnectionEndpoint.prototype.onMessage = function( socketWrapper, message ) {};
 /**
  * Closes both the engine.io connection and the tcp connection. The ConnectionEndpoint
  * will emit a close event once both are succesfully shut down
- * 
+ *
  * @public
  * @returns {void}
  */
 ConnectionEndpoint.prototype.close = function() {
 	// Close the engine.io server
+	if( this._engineIo ) {
+		this._closeEngineIoServer();
+	}
+
+	// Close the tcp server
+	if( this._tcpEndpoint ) {
+		this._closeTcpServer();
+	}
+};
+
+/**
+ * Closes the engine.io and subsequently http server
+ *
+ * TODO: Make sure that engine.io and the http server's
+ * clode events align and potentially don't close
+ * the http server if it's provided as an external parameter
+ * and might be used by express etc...
+ *
+ * @private
+ * @returns {void}
+ */
+ConnectionEndpoint.prototype._closeEngineIoServer = function() {
+	this._engineIo.removeAllListeners( 'connection' );
 	for( var i = 0; i < this._engineIo.clients.length; i++ ) {
 		if( this._engineIo.clients[ i ].readyState !== READY_STATE_CLOSED ) {
 			this._engineIo.clients[ i ].once( 'close', this._checkClosed.bind( this ) );
 		}
 	}
-
 	this._engineIo.close();
-	this._server.close(function(){ this._engineIoServerClosed = true; }.bind( this ));
-	
-	// Close the tcp server
+	this._server.close( function(){
+		this._engineIoServerClosed = true;
+		this._checkClosed();
+	}.bind( this ));
+};
+
+/**
+ * Issues a close command to the tcp server and subscribes
+ * to its close event
+ *
+ * @private
+ * @returns {void}
+ */
+ConnectionEndpoint.prototype._closeTcpServer = function() {
+	this._tcpEndpoint.removeAllListeners( 'connection' );
 	this._tcpEndpoint.on( 'close', this._checkClosed.bind( this ) );
 	this._tcpEndpoint.close();
 
@@ -108,27 +150,52 @@ ConnectionEndpoint.prototype.close = function() {
 };
 
 /**
+ * Creates an HTTP or HTTPS server for engine.io to attach itself to,
+ * depending on the options the client configured
+ *
+ * @private
+ * @returns {http.HttpServer || http.HttpsServer}
+ */
+ConnectionEndpoint.prototype._createHttpServer = function() {
+	if( this._isHttpsServer() ) {
+
+		var httpsOptions = {
+			key: this._options.sslKey,
+			cert: this._options.sslCert
+		};
+
+		if ( this._options.sslCa ) {
+			httpsOptions.ca = this._options.sslCa;
+		}
+
+		return https.createServer( httpsOptions );
+	} else {
+		return http.createServer();
+	}
+};
+
+/**
  * Called whenever either the tcp server itself or one of its sockets
  * is closed. Once everything is closed it will emit a close event
- * 
+ *
  * @private
  * @returns {void}
  */
 ConnectionEndpoint.prototype._checkClosed = function() {
-	if( this._engineIoServerClosed === false ) {
+	if( this._tcpEndpoint && this._tcpEndpoint.isClosed === false ) {
 		return;
 	}
-	
-	if( this._tcpEndpoint.isClosed === false ) {
-		return;	
+
+	if( this._engineIo && this._engineIoServerClosed === false ) {
+		return;
 	}
-	
-	for( var i = 0; i < this._engineIo.clients.length; i++ ) {
+
+	for( var i = 0; this._engineIo && i < this._engineIo.clients.length; i++ ) {
 		if( this._engineIo.clients[ i ].readyState !== READY_STATE_CLOSED ) {
 			return;
 		}
 	}
-	
+
 	this.emit( 'close' );
 };
 
@@ -137,7 +204,7 @@ ConnectionEndpoint.prototype._checkClosed = function() {
  * a connected socket, wraps it in a SocketWrapper and
  * subscribes to authentication messages
  *
- * @param {Number} endpoint 
+ * @param {Number} endpoint
  * @param {TCPSocket|Engine.io} socket
  *
  * @private
@@ -153,7 +220,6 @@ ConnectionEndpoint.prototype._onConnection = function( endpoint, socket ) {
 	} else {
 		logMsg = 'from ' + handshakeData.remoteAddress + ' via tcp';
 	}
-
 
 	this._options.logger.log( C.LOG_LEVEL.INFO, C.EVENT.INCOMING_CONNECTION, logMsg );
 	socketWrapper.authCallBack = this._authenticateConnection.bind( this, socketWrapper );
@@ -208,14 +274,14 @@ ConnectionEndpoint.prototype._authenticateConnection = function( socketWrapper, 
 		this._sendInvalidAuthMsg( socketWrapper, errorMsg );
 		return;
 	}
-	
+
 	/**
 	 * Forward for authentication
 	 */
-	this._options.permissionHandler.isValidUser( 
-		socketWrapper.getHandshakeData(), 
+	this._options.permissionHandler.isValidUser(
+		socketWrapper.getHandshakeData(),
 		authData,
-		this._processAuthResult.bind( this, authData, socketWrapper ) 
+		this._processAuthResult.bind( this, authData, socketWrapper )
 	);
 };
 
@@ -248,12 +314,17 @@ ConnectionEndpoint.prototype._sendInvalidAuthMsg = function( socketWrapper, msg 
  *
  * @returns {void}
  */
-ConnectionEndpoint.prototype._registerAuthenticatedSocket  = function( socketWrapper, username ) {
+ConnectionEndpoint.prototype._registerAuthenticatedSocket  = function( socketWrapper, username, data ) {
 	socketWrapper.socket.removeListener( 'message', socketWrapper.authCallBack );
 	socketWrapper.socket.once( 'close', this._onSocketClose.bind( this, socketWrapper ) );
 	socketWrapper.socket.on( 'message', function( msg ){ this.onMessage( socketWrapper, msg ); }.bind( this ));
 	socketWrapper.user = username;
-	socketWrapper.sendMessage( C.TOPIC.AUTH, C.ACTIONS.ACK );
+	if( typeof data === 'undefined' ) {
+		socketWrapper.sendMessage( C.TOPIC.AUTH, C.ACTIONS.ACK );
+	} else {
+		socketWrapper.sendMessage( C.TOPIC.AUTH, C.ACTIONS.ACK, [ messageBuilder.typed( data ) ] );
+	}
+
 	this._authenticatedSockets.push( socketWrapper );
 	this._options.logger.log( C.LOG_LEVEL.INFO, C.EVENT.AUTH_SUCCESSFUL, username );
 };
@@ -279,12 +350,12 @@ ConnectionEndpoint.prototype._processInvalidAuth = function( authError, authData
 	}
 
 	this._options.logger.log( C.LOG_LEVEL.INFO, C.EVENT.INVALID_AUTH_DATA, logMsg );
-	socketWrapper.sendError( C.TOPIC.AUTH, C.EVENT.INVALID_AUTH_DATA, authError || 'invalid authentication data' );
+	socketWrapper.sendError( C.TOPIC.AUTH, C.EVENT.INVALID_AUTH_DATA, messageBuilder.typed( authError ) );
 	socketWrapper.authAttempts++;
-	
+
 	if( socketWrapper.authAttempts >= this._options.maxAuthAttempts ) {
 		this._options.logger.log( C.LOG_LEVEL.INFO, C.EVENT.TOO_MANY_AUTH_ATTEMPTS, 'too many authentication attempts' );
-		socketWrapper.sendError( C.TOPIC.AUTH, C.EVENT.TOO_MANY_AUTH_ATTEMPTS, 'too many authentication attempts' );
+		socketWrapper.sendError( C.TOPIC.AUTH, C.EVENT.TOO_MANY_AUTH_ATTEMPTS, messageBuilder.typed( 'too many authentication attempts' ) );
 		socketWrapper.destroy();
 	}
 };
@@ -298,12 +369,12 @@ ConnectionEndpoint.prototype._processInvalidAuth = function( authError, authData
  * @param   {String} username
  *
  * @private
- * 
+ *
  * @returns {void}
  */
-ConnectionEndpoint.prototype._processAuthResult = function( authData, socketWrapper, authError, username ) {
+ConnectionEndpoint.prototype._processAuthResult = function( authData, socketWrapper, authError, username, data ) {
 	if( authError === null ) {
-		this._registerAuthenticatedSocket( socketWrapper, username );
+		this._registerAuthenticatedSocket( socketWrapper, username, data );
 	} else {
 		this._processInvalidAuth( authError, authData, socketWrapper );
 	}
@@ -318,10 +389,11 @@ ConnectionEndpoint.prototype._processAuthResult = function( authData, socketWrap
  * @returns {void}
  */
 ConnectionEndpoint.prototype._checkReady = function( endpoint ) {
-	var msg;
+	var msg, address, tcpEndpointReady, engineIoReady;
 
 	if( endpoint === ENGINE_IO ) {
-		msg = 'Listening for browser connections on ' + this._options.host + ':' + this._options.port;
+		address = this._server.address();
+		msg = 'Listening for browser connections on ' + address.address + ':' + address.port;
 		this._engineIoReady = true;
 	}
 
@@ -332,7 +404,10 @@ ConnectionEndpoint.prototype._checkReady = function( endpoint ) {
 
 	this._options.logger.log( C.LOG_LEVEL.INFO, C.EVENT.INFO, msg );
 
-	if( this._tcpEndpointReady === true && this._engineIoReady === true ) {
+	tcpEndpointReady = !this._tcpEndpoint || this._tcpEndpointReady === true;
+	engineIoReady = !this._engineIo || this._engineIoReady === true;
+
+	if( tcpEndpointReady && engineIoReady ) {
 		this._readyCallback();
 	}
 };

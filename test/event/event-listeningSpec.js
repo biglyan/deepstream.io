@@ -41,7 +41,7 @@ describe( 'event handler handles messages', function(){
 	       data: [ 'event\/.*' ]
 	    });
 	    
-	    expect( listeningClient.socket.getMsg( 2 ) ).toBe( msg( 'E|A|S|event\/.*+' ) );
+	    expect( listeningClient.socket.getMsg( 2 ) ).toBe( msg( 'E|A|L|event\/.*+' ) );
         expect( listeningClient.socket.getMsg( 1 ) ).toBe( msg( 'E|SP|event\/.*|event/A+' ) );
         expect( listeningClient.socket.getMsg( 0 ) ).toBe( msg( 'E|SP|event\/.*|event/B+' ) );
 	});
@@ -56,6 +56,17 @@ describe( 'event handler handles messages', function(){
 	    expect( listeningClient.socket.lastSendMessage ).toBe( msg( 'E|SP|event\/.*|event/C+' ) );
 	});
 	
+	it( 'returns a snapshot of the all event that match the pattern', function(){
+		eventHandler.handle( subscribingClient, {
+			raw: msg( 'E|LSN|user\/*' ),
+			topic: 'E',
+			action: 'LSN',
+			data: [ 'event\/*' ]
+		});
+
+		expect( subscribingClient.socket.lastSendMessage ).toBe( msg( 'E|SF|event/*|["event/A","event/B","event/C"]+' ));
+	});
+
 	it( 'doesn\'t send messages for subsequent subscriptions', function(){
 	     expect( listeningClient.socket.sendMessages.length ).toBe( 4 );
 	     eventHandler.handle( subscribingClient, {
@@ -73,7 +84,7 @@ describe( 'event handler handles messages', function(){
 	       data: [ 'event\/.*' ]
 	    });
 	    
-	    expect( listeningClient.socket.lastSendMessage ).toBe( msg( 'E|A|US|event\/.*+' ) );
+	    expect( listeningClient.socket.lastSendMessage ).toBe( msg( 'E|A|UL|event\/.*+' ) );
 	    expect( listeningClient.socket.sendMessages.length ).toBe( 5 );
 	    
 	     eventHandler.handle( subscribingClient, {

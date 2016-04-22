@@ -6,7 +6,7 @@ var ListenerRegistry = require( '../../src/utils/listener-registry' ),
 	LoggerMock = require( '../mocks/logger-mock' ),
 	noopMessageConnector = require( '../../src/default-plugins/noop-message-connector' );
 
-describe( 'record listener-registry', function(){
+describe( 'listener-registry', function(){
     var listenerRegistry,
         options = { logger: new LoggerMock() },
         recordSubscriptionRegistryMock = { getNames: function() { return [ 'car/Mercedes', 'car/Abarth' ]; } },
@@ -25,7 +25,7 @@ describe( 'record listener-registry', function(){
         };
         
         listenerRegistry.addListener( listeningSocket, message );
-        expect( listeningSocket.socket.lastSendMessage ).toBe( msg( 'R|A|S|user\/[A-Za-z]*$+' ) );
+        expect( listeningSocket.socket.lastSendMessage ).toBe( msg( 'R|A|L|user\/[A-Za-z]*$+' ) );
     });
     
     it( 'makes a subscription that matches the listener\'s pattern', function(){
@@ -42,6 +42,17 @@ describe( 'record listener-registry', function(){
        listenerRegistry.onSubscriptionMade( 'user/Arthur' );
        expect( listeningSocket.socket.lastSendMessage ).toBe( msg( 'R|SP|user\/[A-Za-z]*$|user/Arthur+' ) );
     });
+
+    it( 'requests a snapshot of the listeners', function() {
+        var message = {
+            topic: 'R',
+            action: 'LSN',
+            data: [ 'car\/[A-Za-z]*' ]
+        };
+
+        listenerRegistry.sendSnapshot( listeningSocket, message );
+        expect( listeningSocket.socket.lastSendMessage ).toBe( msg( 'R|SF|car/[A-Za-z]*|["car/Mercedes","car/Abarth"]+'  ) );
+    });
     
     it( 'removes the listener', function() {
         var message = {
@@ -50,15 +61,15 @@ describe( 'record listener-registry', function(){
               data: [ 'user\/[A-Za-z]*$' ]
         };
        listenerRegistry.removeListener( listeningSocket, message );
-       expect( listeningSocket.socket.lastSendMessage ).toBe( msg( 'R|A|US|user\/[A-Za-z]*$+' ) );
+       expect( listeningSocket.socket.lastSendMessage ).toBe( msg( 'R|A|UL|user\/[A-Za-z]*$+' ) );
     });
     
     it( 'makes a third subscription that matches the now removed listener\'s pattern', function(){
        listenerRegistry.onSubscriptionMade( 'user/Yasser' );
-       expect( listeningSocket.socket.lastSendMessage ).toBe( msg( 'R|A|US|user\/[A-Za-z]*$+' ) );
+       expect( listeningSocket.socket.lastSendMessage ).toBe( msg( 'R|A|UL|user\/[A-Za-z]*$+' ) );
     });
     
-    it( 'adds a listener with a pattern for which subscriptions already exist', function() {
+    it( 'adds a listener with a pattern for which subscriptions already exists', function() {
         var message = {
             topic: 'R',
             action: 'L',
@@ -67,7 +78,7 @@ describe( 'record listener-registry', function(){
         
         listenerRegistry.addListener( listeningSocket, message );
         
-        expect( listeningSocket.socket.getMsg( 2 ) ).toBe( msg( 'R|A|S|car\/[A-Za-z]*$+' ) );
+        expect( listeningSocket.socket.getMsg( 2 ) ).toBe( msg( 'R|A|L|car\/[A-Za-z]*$+' ) );
         expect( listeningSocket.socket.getMsg( 1 ) ).toBe( msg( 'R|SP|car\/[A-Za-z]*$|car/Mercedes+' ) );
         expect( listeningSocket.socket.getMsg( 0 ) ).toBe( msg( 'R|SP|car\/[A-Za-z]*$|car/Abarth+' ) );
     });
@@ -76,7 +87,7 @@ describe( 'record listener-registry', function(){
         listenerRegistry.onSubscriptionRemoved( 'car/Abarth' );
         expect( listeningSocket.socket.lastSendMessage ).toBe( msg( 'R|SR|car\/[A-Za-z]*$|car/Abarth+' ) );
     });
-    
+
     it( 'removes a socket on close', function() {
         expect( Object.keys( listenerRegistry._patterns ) ).toEqual( [ 'car/[A-Za-z]*$' ] );
         expect( listenerRegistry._subscriptionRegistry.getSubscribers( 'car/[A-Za-z]*$' ).length ).toBe( 1 );

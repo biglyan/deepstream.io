@@ -1,8 +1,16 @@
-[deepstream.io](http://deepstream.io/) ![Build](https://travis-ci.org/hoxton-one/deepstream.io.svg?branch=master) [![npm version](https://badge.fury.io/js/deepstream.io.svg)](http://badge.fury.io/js/deepstream.io)
+[deepstream.io](http://deepstream.io/) [![Build Status](https://travis-ci.org/deepstreamIO/deepstream.io.svg?branch=master)](https://travis-ci.org/deepstreamIO/deepstream.io) [![npm version](https://badge.fury.io/js/deepstream.io.svg)](http://badge.fury.io/js/deepstream.io)
 ==============================================
 A scalable server for realtime apps
 ----------------------------------------------
 Deepstream is a clusterable server that provides everything necessary to build powerful realtime applications. It’s written in nodeJs and freely available under a MIT license. To learn more, please visit http://deepstream.io/
+
+* Stores and syncs data in realtime
+* Built in node.js
+* Works for browsers, backend & mobile
+* Scales via clustering
+* Exceptionally fast & easy to use
+* Open Source and free (MIT License)
+
 
 ## Documentation
 
