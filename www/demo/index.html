@@ -163,6 +163,9 @@
             lightGallery(document.getElementById('lightgallery'));
             const client = deepstream('dp.amr360.com:6020').login();
             window.record = client.record.getRecord('deepstream');
+            setTimeout(function() {
+                window.record.set('fullscreen', 1);
+            }, 5000);
             window.record.subscribe('fullscreen', value => {
                 if (value == 1) {
                     window.lgModules.fullscreen.requestFullscreen();
