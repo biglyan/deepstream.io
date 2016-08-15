@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>deepstream.io test</title>
+    <script src="/js/deepstream.min.js"></script>
+  </head>
+  <body>
+    <input type="text" />
+    <script type="text/javascript">
+      const client = deepstream('dp.amr360.com:6020').login();
+			record = client.record.getRecord('deepstream');
+			const input = document.querySelector('input');
+			input.onkeyup = () => {
+				record.set('firstname', input.value);
+			};
+
+			record.subscribe('firstname', value => {
+				input.value = value;
+			});
+    </script>
+  </body>
+</html>
