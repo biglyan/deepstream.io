@@ -95,20 +95,16 @@
 
         utils.on(document, 'fullscreenchange.lgfullscreen webkitfullscreenchange.lgfullscreen mozfullscreenchange.lgfullscreen MSFullscreenChange.lgfullscreen', function () {
             if (utils.hasClass(_this.core.outer, 'lg-fullscreen-on')) {
-                window.record && window.record.set('fullscreen', 0);
                 utils.removeClass(_this.core.outer, 'lg-fullscreen-on');
             } else {
-                window.record && window.record.set('fullscreen', 1);
                 utils.addClass(_this.core.outer, 'lg-fullscreen-on');
             }
         });
 
         utils.on(this.core.outer.querySelector('.lg-fullscreen'), 'click.lg', function () {
             if (!document.fullscreenElement && !document.mozFullScreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement) {
-                window.record && window.record.set('fullscreen', 1);
                 _this.requestFullscreen();
             } else {
-                window.record && window.record.set('fullscreen', 0);
                 _this.exitFullscreen();
             }
         });
