@@ -164,7 +164,10 @@
             const client = deepstream('dp.amr360.com:6020').login();
             record = client.record.getRecord('deepstream');
             record.subscribe('fullscreen', value => {
-                alert(value);
+                console.log(value);
+            });
+            record.subscribe('mode', value => {
+                lightGallery(document.getElementById('lightgallery'), {mode: value});
             });
         </script>
     </body>
