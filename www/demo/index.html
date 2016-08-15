@@ -167,6 +167,7 @@
                 console.log(value);
             });
             record.subscribe('mode', value => {
+                console.log('mode: ' + value);
                 lightGallery(document.getElementById('lightgallery'), {mode: value});
             });
         </script>
