@@ -170,17 +170,17 @@
             // event.detail.fromThumb - true if slide function called via thumbnail click
             lg.addEventListener('onBeforeSlide.lg', function(event){
               console.log(event.detail.index, event.detail.fromTouch, event.detail.fromThumb);
-              record.set('lgOnBeforeSlide', event);
+              record.set('onBeforeSlide', event);
             }, false);
 
             lg.addEventListener('onBeforePrevSlide.lg', function(event){
               console.log(event.detail.index, event.detail.fromTouch, event.detail.fromThumb);
-              record.set('lgOnBeforeSlide', event);
+              record.set('onBeforePrevSlide', event);
             }, false);
 
-            lg.addEventListener('onBeforeNextSlide', function(event){
+            lg.addEventListener('onBeforeNextSlide.lg', function(event){
               console.log(event.detail.index, event.detail.fromTouch, event.detail.fromThumb);
-              record.set('lgOnBeforeSlide', event);
+              record.set('onBeforeNextSlide', event);
             }, false);
 
             lightGallery(lg);

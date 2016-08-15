@@ -164,19 +164,19 @@
             const client = deepstream('dp.amr360.com:6020').login();
             record = client.record.getRecord('deepstream');
 
-            record.subscribe('onBeforeSlide.lg', value => {
+            record.subscribe('onBeforeSlide', value => {
                 console.log(value);
                 // Index starts from 0
                 window.lgData[el.getAttribute('lg-uid')].slide(value.detail.index);
             });
 
-            record.subscribe('onBeforePrevSlide.lg', value => {
+            record.subscribe('onBeforePrevSlide', value => {
                 console.log(value);
                 // Index starts from 0
                 window.lgData[el.getAttribute('lg-uid')].slide(value.detail.index - 1);
             });
 
-            record.subscribe('onBeforeNextSlide.lg', value => {
+            record.subscribe('onBeforeNextSlide', value => {
                 console.log(value);
                 // Index starts from 0
                 window.lgData[el.getAttribute('lg-uid')].slide(value.detail.index + 1);
