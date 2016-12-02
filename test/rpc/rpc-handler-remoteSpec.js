@@ -4,9 +4,11 @@ var RpcHandler = require( '../../src/rpc/rpc-handler' ),
 	C = require( '../../src/constants/constants' ),
 	msg = require( '../test-helper/test-helper' ).msg,
 	SocketMock = require( '../mocks/socket-mock' ),
-	MessageConnectorMock = require( '../mocks/message-connector-mock' );
+	MessageConnectorMock = require( '../mocks/message-connector-mock' ),
+	clusterRegistryMock = new (require( '../mocks/cluster-registry-mock' ))();
 
 var options = {
+	clusterRegistry: clusterRegistryMock,
 	messageConnector: new MessageConnectorMock(),
 	logger: { log: jasmine.createSpy( 'log' ) },
 	serverName: 'thisServer',
@@ -29,20 +31,4 @@ describe( 'encounters errors while making an RPC', function(){
 		expect( requestor.socket.lastSendMessage ).toBe( msg( 'P|E|INVALID_MESSAGE_DATA|invalid-raw-message+' ) );
 	});
 
-	it( 'encounters an error when querying for remote rpc providers', function(){
-		var requestMessage = {
-			topic: C.TOPIC.RPC,
-			action: C.ACTIONS.REQUEST,
-			raw: msg( 'P|REQ|addTwo|1234|{"numA":5, "numB":7}+' ),
-			data: [ 'addTwo', '1234', '{"numA":5, "numB":7}' ]
-		};
-		requestor.socket.lastSendMessage = null;
-		rpcHandler._remoteProviderRegistry.getProviderTopic = function( rpcName, callback ) {
-			callback( requestor, requestMessage, 'something went wrong' );
-		};
-
-		rpcHandler.handle( requestor, requestMessage );
-		expect( requestor.socket.lastSendMessage ).toBe( msg( 'P|E|NO_RPC_PROVIDER|addTwo|1234+' ) );
-		expect( options.logger.log ).toHaveBeenCalledWith( 2, 'NO_RPC_PROVIDER', 'addTwo' );
-	});
 });

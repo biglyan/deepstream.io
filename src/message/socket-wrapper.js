@@ -1,14 +1,15 @@
 var C = require( '../constants/constants' ),
 	messageBuilder = require( './message-builder' ),
 	EventEmitter = require( 'events' ).EventEmitter,
-	utils = require( 'util' );
+	utils = require( 'util' ),
+	uws = require( 'uws' );
 
 /**
- * This class wraps around an engine.io or TCP socket
+ * This class wraps around a websocket
  * and provides higher level methods that are integrated
  * with deepstream's message structure
  *
- * @param {engine.io Socket | TcpSocket} socket
+ * @param {WebSocket} socket
  * @param {Object} options
  *
  * @extends EventEmitter
@@ -24,9 +25,78 @@ var SocketWrapper = function( socket, options ) {
 	this.authCallBack = null;
 	this.authAttempts = 0;
 	this.setMaxListeners( 0 );
+	this.uuid = Math.random();
+
+	this._queuedMessages = [];
+	this._currentPacketMessageCount = 0;
+	this._sendNextPacketTimeout = null;
+	this._currentMessageResetTimeout = null;
+
+	/**
+	 * This defaults for test purposes since socket wrapper creating touches
+	 * everything
+	 */
+	if( typeof this._options.maxMessagesPerPacket === "undefined" ) {
+		this._options.maxMessagesPerPacket = 1000;
+	}
 };
 
 utils.inherits( SocketWrapper, EventEmitter );
+SocketWrapper.lastPreparedMessage = null;
+
+/**
+ * Updates lastPreparedMessage and returns the [uws] prepared message.
+ *
+ * @param {String} message the message to be prepared
+ *
+ * @public
+ * @returns {External} prepared message
+ */
+SocketWrapper.prepareMessage = function( message ) {
+	SocketWrapper.lastPreparedMessage = message;
+	return uws.native.server.prepareMessage( message, uws.OPCODE_TEXT );
+}
+
+/**
+ * Sends the [uws] prepared message, or in case of testing sends the
+ * last prepared message.
+ *
+ * @param {External} preparedMessage the prepared message
+ *
+ * @public
+ * @returns {void}
+ */
+SocketWrapper.prototype.sendPrepared = function(preparedMessage) {
+	if ( this.socket.external ) {
+		uws.native.server.sendPrepared( this.socket.external, preparedMessage );
+	} else if ( this.socket.external !== null ) {
+		this.socket.send( SocketWrapper.lastPreparedMessage );
+	}
+}
+
+/**
+ * Variant of send with no particular checks or appends of message.
+ *
+ * @param {String} message the message to send
+ *
+ * @public
+ * @returns {void}
+ */
+SocketWrapper.prototype.sendNative = function( message ) {
+	this.socket.send( message );
+}
+
+/**
+ * Finalizes the [uws] perpared message.
+ *
+ * @param {External} preparedMessage the prepared message to finalize
+ *
+ * @public
+ * @returns {void}
+ */
+SocketWrapper.finalizeMessage = function( preparedMessage ) {
+	uws.native.server.finalizeMessage( preparedMessage );
+}
 
 /**
  * Returns a map of parameters that were collected
@@ -38,12 +108,12 @@ utils.inherits( SocketWrapper, EventEmitter );
  */
 SocketWrapper.prototype.getHandshakeData = function() {
 	var handshakeData = {
-		remoteAddress: this.socket.remoteAddress
+		remoteAddress: this.socket._socket.remoteAddress
 	};
 
-	if( this.socket.request ) {
-		handshakeData.headers = this.socket.request.headers;
-		handshakeData.referer = this.socket.request.headers.referer;
+	if( this.socket.upgradeReq ) {
+		handshakeData.headers = this.socket.upgradeReq.headers;
+		handshakeData.referer = this.socket.upgradeReq.headers.referer;
 	}
 
 	return handshakeData;
@@ -62,7 +132,7 @@ SocketWrapper.prototype.getHandshakeData = function() {
  */
 SocketWrapper.prototype.sendError = function( topic, type, msg ) {
 	if( this.isClosed === false ) {
-		this.socket.send( messageBuilder.getErrorMsg( topic, type, msg ) );
+		this.send( messageBuilder.getErrorMsg( topic, type, msg ) );
 	}
 };
 
@@ -78,26 +148,29 @@ SocketWrapper.prototype.sendError = function( topic, type, msg ) {
  */
 SocketWrapper.prototype.sendMessage = function( topic, action, data ) {
 	if( this.isClosed === false ) {
-		this.socket.send( messageBuilder.getMsg( topic, action, data ) );
+		this.send( messageBuilder.getMsg( topic, action, data ) );
 	}
 };
 
 /**
- * Low level send method. Sends a string to the client
+ * Checks the passed message and appends missing end separator if
+ * needed, and then sends this message immediately.
  *
- * @param {String} msg deepstream message string
+ * @param   {String} message deepstream message
  *
  * @public
  * @returns {void}
  */
-SocketWrapper.prototype.send = function( msg ) {
-	if( msg.charAt( msg.length - 1 ) !== C.MESSAGE_SEPERATOR ) {
-		msg += C.MESSAGE_SEPERATOR;
+SocketWrapper.prototype.send = function( message ) {
+	if( message.charAt( message.length - 1 ) !== C.MESSAGE_SEPERATOR ) {
+		message += C.MESSAGE_SEPERATOR;
 	}
 
-	if( this.isClosed === false ) {
-		this.socket.send( msg );
+	if( this.isClosed === true ) {
+		return;
 	}
+
+	this.socket.send( message );
 };
 
 /**
@@ -108,7 +181,7 @@ SocketWrapper.prototype.send = function( msg ) {
  * @returns {void}
  */
 SocketWrapper.prototype.destroy = function() {
-	this.socket.close( true );
+	this.socket.close();
 	this.socket.removeAllListeners();
 	this.authCallBack = null;
 };
@@ -121,6 +194,7 @@ SocketWrapper.prototype.destroy = function() {
  */
 SocketWrapper.prototype._onSocketClose = function() {
 	this.isClosed = true;
+	this.emit( 'close' );
 	this._options.logger.log( C.LOG_LEVEL.INFO, C.EVENT.CLIENT_DISCONNECTED, this.user );
 };
 
