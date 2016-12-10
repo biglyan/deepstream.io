@@ -1,9 +1,9 @@
 var proxyquire = require( 'proxyquire' ).noCallThru(),
-	engineIoMock = require( '../mocks/engine-io-mock' ),
+	websocketMock = require( '../mocks/websocket-mock' ),
 	HttpMock = require( '../mocks/http-mock' ),
 	httpMock = new HttpMock(),
 	httpsMock = new HttpMock(),
-	ConnectionEndpoint = proxyquire( '../../src/message/connection-endpoint', { 'engine.io': engineIoMock, 'http': httpMock, 'https': httpsMock } ),
+	ConnectionEndpoint = proxyquire( '../../src/message/connection-endpoint', { 'uws': websocketMock, 'http': httpMock, 'https': httpsMock } ),
 	_msg = require( '../test-helper/test-helper' ).msg,
 	lastAuthenticatedMessage = null,
 	lastLoggedMessage = null,
@@ -25,34 +25,25 @@ permissionHandler = {
     onClientDisconnect: function( username ){}
 };
 
-
-
 options = {
 	permissionHandler: permissionHandler,
 	authenticationHandler: permissionHandler,
 	logger: { log: function( logLevel, event, msg ){ lastLoggedMessage = msg; } },
 	maxAuthAttempts: 3,
-	logInvalidAuthData: true,
-	tcpServerEnabled: true,
-	webServerEnabled: true,
-	tcpPort: 3333
+	logInvalidAuthData: true
 };
 
 describe( 'permissionHandler passes additional user meta data', function() {
 
 	var socketMock;
 
-	it( 'create a connection endpoint', function() {
+	beforeAll( function() {
 		connectionEndpoint = new ConnectionEndpoint( options, function(){} );
 		connectionEndpoint.onMessage = function( socket, message ){
 			lastAuthenticatedMessage = message;
 		};
-	});
-
-	it( 'creates the connection endpoint', function(){
-		socketMock = engineIoMock.simulateConnection();
-		expect( socketMock.lastSendMessage ).toBe( _msg( 'C|A+' ) );
-		expect( socketMock.isDisconnected ).toBe( false );
+		socketMock = websocketMock.simulateConnection();
+		socketMock.emit( 'message', _msg( 'C|CHR|localhost:6021+' ) );
 	});
 
 	it( 'sends an authentication message', function(){

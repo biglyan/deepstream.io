@@ -1,6 +1,6 @@
 var C = require( '../constants/constants' ),
 	SubscriptionRegistry = require( '../utils/subscription-registry' ),
-	ListenerRegistry = require( '../utils/listener-registry' ),
+	ListenerRegistry = require( '../listen/listener-registry' ),
 	RecordRequest = require( './record-request' ),
 	RecordTransition = require( './record-transition' ),
 	RecordDeletion = require( './record-deletion' ),
@@ -18,9 +18,6 @@ var RecordHandler = function( options ) {
 	this._subscriptionRegistry = new SubscriptionRegistry( options, C.TOPIC.RECORD );
 	this._listenerRegistry = new ListenerRegistry( C.TOPIC.RECORD, options, this._subscriptionRegistry );
 	this._subscriptionRegistry.setSubscriptionListener( this._listenerRegistry );
-	this._hasReadTransforms = this._options.dataTransforms && this._options.dataTransforms.has( C.TOPIC.RECORD, C.ACTIONS.READ );
-	this._hasUpdateTransforms = this._options.dataTransforms && this._options.dataTransforms.has( C.TOPIC.RECORD, C.ACTIONS.UPDATE );
-	this._hasPatchTransforms = this._options.dataTransforms && this._options.dataTransforms.has( C.TOPIC.RECORD, C.ACTIONS.PATCH );
 	this._transitions = {};
 	this._recordRequestsInProgress = {};
 };
@@ -94,26 +91,15 @@ RecordHandler.prototype.handle = function( socketWrapper, message ) {
 	}
 
 	/*
-	 * Return a list of all the records that much the pattern
-	 */
-	else if( message.action === C.ACTIONS.LISTEN_SNAPSHOT ) {
-		this._listenerRegistry.sendSnapshot( socketWrapper, message );
-	}
-
-	/*
 	 * Listen to requests for a particular record or records
 	 * whose names match a pattern
 	 */
-	else if( message.action === C.ACTIONS.LISTEN ) {
-		this._listenerRegistry.addListener( socketWrapper, message );
-	}
-
-	/*
-	 * Remove the socketWrapper as a listener for
-	 * the specified pattern
-	 */
-	else if( message.action === C.ACTIONS.UNLISTEN ) {
-		this._listenerRegistry.removeListener( socketWrapper, message );
+	else if( message.action === C.ACTIONS.LISTEN ||
+		message.action === C.ACTIONS.UNLISTEN ||
+		message.action === C.ACTIONS.LISTEN_ACCEPT ||
+		message.action === C.ACTIONS.LISTEN_REJECT ||
+		message.action === C.ACTIONS.LISTEN_SNAPSHOT ) {
+		this._listenerRegistry.handle( socketWrapper, message );
 	}
 
 	/*
@@ -228,7 +214,7 @@ RecordHandler.prototype._create = function( recordName, socketWrapper ) {
 		// store the record data in the persistant storage independently and don't wait for the result
 		this._options.storage.set( recordName, record, function( error ) {
 			if( error ) {
-				this._options.logger.log( C.TOPIC.RECORD, C.EVENT.RECORD_CREATE_ERROR, 'storage:' + error );
+				this._options.logger.log( C.LOG_LEVEL.ERROR, C.EVENT.RECORD_CREATE_ERROR, 'storage:' + error );
 			}
 		}.bind( this ) );
 	}
@@ -262,26 +248,7 @@ RecordHandler.prototype._read = function( recordName, record, socketWrapper ) {
  * @returns {void}
  */
 RecordHandler.prototype._sendRecord = function( recordName, record, socketWrapper ) {
-	var data = record._d;
-
-	if( this._hasReadTransforms ) {
-		data = this._options.dataTransforms.apply(
-			C.TOPIC.RECORD,
-			C.ACTIONS.READ,
-
-			/*
-			 * Clone the object to make sure that the transform method doesn't accidentally
-			 * modify the object reference for other subscribers.
-			 *
-			 * JSON stringify/parse still seems to be the fastest way to achieve a deep copy.
-			 * TODO Update once native Object.clone // Object.copy becomes a thing
-			 */
-			JSON.parse( JSON.stringify( data ) ),
-			{ recordName: recordName, receiver: socketWrapper.user }
-		);
-	}
-
-	socketWrapper.sendMessage( C.TOPIC.RECORD, C.ACTIONS.READ, [ recordName, record._v, data ] );
+	socketWrapper.sendMessage( C.TOPIC.RECORD, C.ACTIONS.READ, [ recordName, record._v, record._d ] );
 };
 
  /**
@@ -343,68 +310,10 @@ RecordHandler.prototype._update = function( socketWrapper, message ) {
  * @returns {void}
  */
 RecordHandler.prototype._$broadcastUpdate = function( name, message, originalSender ) {
-	var transformUpdate = message.action === C.ACTIONS.UPDATE && this._hasUpdateTransforms,
-		transformPatch = message.action === C.ACTIONS.PATCH && this._hasPatchTransforms;
-
-	if( transformUpdate || transformPatch ) {
-		this._broadcastTransformedUpdate( transformUpdate, transformPatch, name, message, originalSender );
-	} else {
-		this._subscriptionRegistry.sendToSubscribers( name, message.raw, originalSender );
-	}
+	this._subscriptionRegistry.sendToSubscribers( name, message.raw, originalSender );
 
 	if( originalSender !== C.SOURCE_MESSAGE_CONNECTOR ) {
 		this._options.messageConnector.publish( C.TOPIC.RECORD, message );
-	}
-};
-
-/**
- * Called by _$broadcastUpdate if registered transform functions are detected. Disassembles
- * the message and invokes the transform function prior to sending it to every individual receiver
- * so that receiver specific transforms can be applied.
- *
- * @param   {Boolean} transformUpdate is a update transform function registered that applies to this update?
- * @param   {Boolean} transformPatch  is a patch transform function registered that applies to this update?
- * @param   {String} name             the record name
- * @param   {Object} message          a parsed deepstream message object
- * @param   {SocketWrapper|String} originalSender  the original sender of the update or a string pointing at the messageBus
- *
- * @private
- * @returns {void}
- */
-RecordHandler.prototype._broadcastTransformedUpdate = function( transformUpdate, transformPatch, name, message, originalSender ) {
-	var receiver = this._subscriptionRegistry.getSubscribers( name ) || [],
-		metaData = {
-			recordName: name,
-			version: parseInt( message.data[ 1 ], 10 )
-		},
-		unparsedData = message.data[ transformUpdate ? 2 : 3 ],
-		messageData = message.data.slice( 0 ),
-		data,
-		i;
-
-	if( transformPatch ) {
-		metaData.path = message.data[ 2 ];
-	}
-
-	for( i = 0; i < receiver.length; i++ ) {
-		if( receiver[ i ] === originalSender ) {
-			continue;
-		}
-		metaData.receiver = receiver[ i ].user;
-
-		if( transformUpdate ) {
-			// UPDATE
-			data = JSON.parse( unparsedData );
-			data = this._options.dataTransforms.apply( message.topic, message.action, data, metaData );
-			messageData[ 2 ] = JSON.stringify( data );
-		} else {
-			// PATCH
-			data = messageParser.convertTyped( unparsedData );
-			data = this._options.dataTransforms.apply( message.topic, message.action, data, metaData );
-			messageData[ 3 ] = messageBuilder.typed( data );
-		}
-
-		receiver[ i ].sendMessage( message.topic, message.action, messageData );
 	}
 };
 
@@ -447,7 +356,7 @@ RecordHandler.prototype.removeRecordRequest = function( recordName ) {
 	}
 
 	callback = this._recordRequestsInProgress[ recordName ].splice( 0, 1 )[ 0 ];
-	callback();
+	callback( recordName );
 };
 
 /**
@@ -465,7 +374,7 @@ RecordHandler.prototype.removeRecordRequest = function( recordName ) {
 RecordHandler.prototype.runWhenRecordStable = function( recordName, callback ) {
 	if( !this._recordRequestsInProgress[ recordName ] ) {
 		this._recordRequestsInProgress[ recordName ] = [];
-		callback();
+		callback( recordName );
 	} else {
 		this._recordRequestsInProgress[ recordName ].push( callback );
 	}
@@ -512,12 +421,12 @@ RecordHandler.prototype._delete = function( socketWrapper, message ) {
  * @returns {void}
  */
 RecordHandler.prototype._onDeleted = function( name, message, originalSender ) {
-	var subscribers = this._subscriptionRegistry.getSubscribers( name );
+	var subscribers = this._subscriptionRegistry.getLocalSubscribers( name );
 	var i;
 
 	this._$broadcastUpdate( name, message, originalSender );
-	
-	for( i = 0; i < subscribers.length; i++ ) {
+
+	for( i = 0; subscribers && i < subscribers.length; i++ ) {
 		this._subscriptionRegistry.unsubscribe( name, subscribers[ i ], true );
 	}
 };

@@ -4,6 +4,7 @@ var SocketMock = function(){
 	this.sendMessages = [];
 	this.autoClose = true;
 	this.readyState = "";
+	this._socket = {};
 };
 
 require("util").inherits( SocketMock, require("events").EventEmitter );
@@ -15,6 +16,10 @@ SocketMock.prototype.send = function( message ) {
 
 SocketMock.prototype.getMsg = function( i ) {
 	return this.sendMessages[ this.sendMessages.length - ( i + 1 ) ];
+};
+
+SocketMock.prototype.getMsgSize = function( i ) {
+	return this.sendMessages.length;
 };
 
 SocketMock.prototype.close = function() {

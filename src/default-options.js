@@ -13,15 +13,14 @@ exports.get = function() {
 		/*
 		 * Connectivity
 		 */
-		webServerEnabled: true,
-		tcpServerEnabled: true,
 		port: 6020,
 		host: '0.0.0.0',
-		tcpPort: 6021,
-		tcpHost: '0.0.0.0',
-		httpServer: null,
 		urlPath: '/deepstream',
-
+		healthCheckPath: '/health-check',
+		externalUrl: null,
+		timeBetweenSendingQueuedPackages: 1,
+		maxMessagesPerPacket: 1000,
+		heartbeatInterval: 30000,
 
 		/*
 		 * SSL Configuration
@@ -29,11 +28,6 @@ exports.get = function() {
 		sslKey: null,
 		sslCert: null,
 		sslCa: null,
-
-		/*
-		 * Data Manipulation
-		 */
-		dataTransforms: null,
 
 		/*
 		 * Authentication
@@ -72,14 +66,19 @@ exports.get = function() {
 		/*
 		 * Timeouts
 		 */
-		rpcProviderQueryTimeout: 1000,
-		rpcProviderCacheTime: 60000,
 		rpcAckTimeout: 1000,
 		rpcTimeout: 10000,
 		cacheRetrievalTimeout: 1000,
 		storageRetrievalTimeout: 2000,
 		dependencyInitialisationTimeout: 2000,
-		stateReconciliationTimeout: 500
+		stateReconciliationTimeout: 500,
+		clusterKeepAliveInterval: 5000,
+		clusterActiveCheckInterval: 1000,
+		clusterNodeInactiveTimeout: 6000,
+		listenResponseTimeout: 500,
+		lockTimeout: 1000,
+		lockRequestTimeout: 1000,
+		broadcastTimeout: 0
 	};
 
 	return options;

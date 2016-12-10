@@ -173,3 +173,48 @@ exports.merge = function() {
 
 	return result;
 };
+
+/**
+ * Set timeout utility that adds support for disabling a timeout
+ * by passing null
+ *
+ * @param {Function} callback        the function that will be called after the given time
+ * @param {Number}   timeoutDuration the duration of the timeout in milliseconds
+ *
+ * @public
+ * @returns {Number} timeoutId
+ */
+exports.setTimeout = function( callback, timeoutDuration ) {
+	if( timeoutDuration !== null ) {
+		return setTimeout( callback, timeoutDuration );
+	} else {
+		return -1;
+	}
+};
+
+/**
+ * Set Interval utility that adds support for disabling an interval
+ * by passing null
+ *
+ * @param {Function} callback        the function that will be called after the given time
+ * @param {Number}   intervalDuration the duration of the interval in milliseconds
+ *
+ * @public
+ * @returns {Number} intervalId
+ */
+exports.setInterval = function( callback, intervalDuration ) {
+	if( intervalDuration !== null ) {
+		return setInterval( callback, intervalDuration );
+	} else {
+		return -1;
+	}
+};
+
+exports.getRandomIntInRange = function( min, max ) {
+	return min + Math.floor( Math.random() * ( max - min ) );
+};
+
+exports.spliceRandomElement = function( array ) {
+  const randomIndex = exports.getRandomIntInRange( 0, array.length );
+  return array.splice( randomIndex, 1 )[ 0 ];
+}
