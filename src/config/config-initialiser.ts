@@ -1,5 +1,3 @@
-'use strict'
-
 import * as fs from 'fs'
 import FileAuthenticationHandler from '../authentication/file-based-authentication-handler'
 import OpenAuthenticationHandler from '../authentication/open-authentication-handler'
@@ -17,11 +15,21 @@ import * as fileUtils from './file-utils'
 
 let commandLineArguments
 
+const customPlugins = new Map()
+
+/**
+ * Registers plugins by name. Useful when wanting to include
+ * custom plugins in a binary
+ */
+export const registerPlugin = function (name: string, construct: Function) {
+  customPlugins.set(name, construct)
+}
+
 /**
  * Takes a configuration object and instantiates functional properties.
  * CLI arguments will be considered.
  */
-export const initialise = function (config: DeepstreamConfig): { config: DeepstreamConfig, services: DeepstreamServices } {
+export const initialise = function (config: InternalDeepstreamConfig): { config: InternalDeepstreamConfig, services: DeepstreamServices } {
   commandLineArguments = global.deepstreamCLI || {}
   handleUUIDProperty(config)
   handleSSLProperties(config)
@@ -39,13 +47,20 @@ export const initialise = function (config: DeepstreamConfig): { config: Deepstr
   services.permissionHandler = handlePermissionStrategy(config, services)
   services.connectionEndpoints = handleConnectionEndpoints(config, services)
 
+  if (services.cache.apiVersion !== 2) {
+    storageCompatability(services.cache)
+  }
+  if (services.storage.apiVersion !== 2) {
+    storageCompatability(services.storage)
+  }
+
   return { config, services }
 }
 
 /**
  * Transform the UUID string config to a UUID in the config object.
  */
-function handleUUIDProperty (config: DeepstreamConfig): void {
+function handleUUIDProperty (config: InternalDeepstreamConfig): void {
   if (config.serverName === 'UUID') {
     config.serverName = utils.getUid()
   }
@@ -55,7 +70,7 @@ function handleUUIDProperty (config: DeepstreamConfig): void {
  * Load the SSL files
  * CLI arguments will be considered.
  */
-function handleSSLProperties (config: DeepstreamConfig): void {
+function handleSSLProperties (config: InternalDeepstreamConfig): void {
   const sslFiles = ['sslKey', 'sslCert', 'sslCa']
   let key
   let resolvedFilePath
@@ -79,7 +94,7 @@ function handleSSLProperties (config: DeepstreamConfig): void {
  * Initialize the logger and overwrite the root logLevel if it's set
  * CLI arguments will be considered.
  */
-function handleLogger (config: DeepstreamConfig): Logger {
+function handleLogger (config: InternalDeepstreamConfig): Logger {
   const configOptions = (config.logger || {}).options
   if (commandLineArguments.colors !== undefined) {
     configOptions.colors = commandLineArguments.colors
@@ -130,7 +145,7 @@ function handleLogger (config: DeepstreamConfig): Logger {
  *
  * CLI arguments will be considered.
  */
-function handlePlugins (config: DeepstreamConfig, services: any): void {
+function handlePlugins (config: InternalDeepstreamConfig, services: any): void {
   if (config.plugins == null) {
     return
   }
@@ -159,7 +174,7 @@ function handlePlugins (config: DeepstreamConfig, services: any): void {
  *
  * CLI arguments will be considered.
  */
-function handleConnectionEndpoints (config: DeepstreamConfig, services: any): Array<ConnectionEndpoint> {
+function handleConnectionEndpoints (config: InternalDeepstreamConfig, services: any): Array<ConnectionEndpoint> {
   // delete any endpoints that have been set to `null`
   for (const type in config.connectionEndpoints) {
     if (!config.connectionEndpoints[type]) {
@@ -196,6 +211,10 @@ function handleConnectionEndpoints (config: DeepstreamConfig, services: any): Ar
  * CLI arguments will be considered.
  */
 function resolvePluginClass (plugin: PluginConfig, type: string): any {
+  if (customPlugins.has(plugin.name)) {
+    return customPlugins.get(plugin.name)
+  }
+
   // nexe needs *global.require* for __dynamic__ modules
   // but browserify and proxyquire can't handle *global.require*
   const req = global && global.require ? global.require : require
@@ -230,7 +249,7 @@ function resolvePluginClass (plugin: PluginConfig, type: string): any {
  *
  * CLI arguments will be considered.
  */
-function handleAuthStrategy (config: DeepstreamConfig, logger: Logger): AuthenticationHandler {
+function handleAuthStrategy (config: InternalDeepstreamConfig, logger: Logger): AuthenticationHandler {
   let AuthenticationHandler
 
   const authStrategies = {
@@ -271,7 +290,7 @@ function handleAuthStrategy (config: DeepstreamConfig, logger: Logger): Authenti
  *
  * CLI arguments will be considered.
  */
-function handlePermissionStrategy (config: DeepstreamConfig, services: any): PermissionHandler {
+function handlePermissionStrategy (config: InternalDeepstreamConfig, services: any): PermissionHandler {
   let PermissionHandler
 
   const permissionStrategies = {
@@ -309,4 +328,18 @@ function handlePermissionStrategy (config: DeepstreamConfig, services: any): Per
     return new PermissionHandler(config.permission.options, services)
   }
 
+}
+
+export function storageCompatability (storage: StoragePlugin) {
+  const oldGet = storage.get as Function
+  storage.get = (recordName: string, callback: StorageReadCallback) => {
+    oldGet.call(storage, recordName, (error, record) => {
+      callback(error, record ? record._v : -1, record ? record._d : {})
+    })
+  }
+
+  const oldSet = storage.set as Function
+  storage.set = (recordName: string, version: number, data: any, callback: StorageWriteCallback) => {
+    oldSet.call(storage, recordName, { _v: version, _d: data }, callback)
+  }
 }

@@ -1,5 +1,5 @@
 import * as C from '../../src/constants'
-const recordRequest = require('../../src/record/record-request').default
+const recordRequest = require('../../src/record/record-request').recordRequest
 
 import { getTestMocks } from '../test-helper/test-mocks'
 const testHelper = require('../test-helper/test-helper')
@@ -13,6 +13,9 @@ describe('record request', () => {
   let config
   let services
 
+  const cacheData = { cache: true }
+  const storageData = { storage: true }
+
   beforeEach(() => {
     const options = testHelper.getDeepstreamOptions()
     services = options.services
@@ -21,8 +24,8 @@ describe('record request', () => {
       storageRetrievalTimeout: 100,
       storageExclusionPrefixes: ['dont-save']
     })
-    services.cache.set('existingRecord', { _v: 1, _d: {} }, () => {})
-    services.storage.set('onlyExistsInStorage', { _v: 1, _d: {} }, () => {})
+    services.cache.set('existingRecord', 1, cacheData, () => {})
+    services.storage.set('onlyExistsInStorage', 1, storageData, () => {})
 
     testMocks = getTestMocks()
     client = testMocks.getSocketWrapper('someUser')
@@ -43,16 +46,14 @@ describe('record request', () => {
         completeCallback,
         errorCallback,
         null
-        )
+      )
 
       expect(services.cache.lastRequestedKey).toBe('existingRecord')
       expect(services.storage.lastRequestedKey).toBe(null)
 
       expect(completeCallback).toHaveBeenCalledWith(
-        { _v: 1, _d: {} },
-        'existingRecord',
-        client.socketWrapper
-        )
+        'existingRecord', 1, cacheData, client.socketWrapper
+      )
       expect(errorCallback).not.toHaveBeenCalled()
     })
 
@@ -71,8 +72,9 @@ describe('record request', () => {
 
       setTimeout(() => {
         expect(completeCallback).toHaveBeenCalledWith(
-          { _v: 1, _d: {} },
           'existingRecord',
+          1,
+          cacheData,
           client.socketWrapper
           )
         expect(errorCallback).not.toHaveBeenCalled()
@@ -98,11 +100,7 @@ describe('record request', () => {
       expect(services.cache.lastRequestedKey).toBe('onlyExistsInStorage')
       expect(services.storage.lastRequestedKey).toBe('onlyExistsInStorage')
 
-      expect(completeCallback).toHaveBeenCalledWith(
-        { _v: 1, _d: {} },
-        'onlyExistsInStorage',
-        client.socketWrapper
-        )
+      expect(completeCallback).toHaveBeenCalledWith('onlyExistsInStorage', 1, storageData, client.socketWrapper)
       expect(errorCallback).not.toHaveBeenCalled()
     })
 
@@ -126,10 +124,8 @@ describe('record request', () => {
 
         expect(errorCallback).not.toHaveBeenCalled()
         expect(completeCallback).toHaveBeenCalledWith(
-          { _v: 1, _d: {} },
-          'onlyExistsInStorage',
-          client.socketWrapper
-          )
+          'onlyExistsInStorage', 1, storageData, client.socketWrapper
+        )
         done()
       }, 75)
     })
@@ -147,11 +143,7 @@ describe('record request', () => {
         null
         )
 
-      expect(completeCallback).toHaveBeenCalledWith(
-        null,
-        'doesNotExist',
-        client.socketWrapper
-        )
+      expect(completeCallback).toHaveBeenCalledWith('doesNotExist', -1, null, client.socketWrapper)
       expect(errorCallback).not.toHaveBeenCalled()
 
       expect(services.cache.lastRequestedKey).toBe('doesNotExist')
@@ -300,7 +292,7 @@ describe('record request', () => {
       services.cache.nextGetWillBeSynchronous = true
       services.storage.nextGetWillBeSynchronous = true
       services.storage.delete = jasmine.createSpy('storage.delete')
-      services.storage.set('dont-save/1', { _v: 1, _d: {} }, () => {})
+      services.storage.set('dont-save/1', 1, {}, () => {})
     })
 
     it('returns null when requesting a record that doesn\'t exists in a synchronous cache, and is excluded from storage', done => {
@@ -315,8 +307,9 @@ describe('record request', () => {
       )
 
       expect(completeCallback).toHaveBeenCalledWith(
-        null,
         'dont-save/1',
+        -1,
+        null,
         client.socketWrapper
       )
       expect(errorCallback).not.toHaveBeenCalled()

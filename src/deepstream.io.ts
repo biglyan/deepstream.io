@@ -34,8 +34,8 @@ process.title = 'deepstream server'
 export class Deepstream extends EventEmitter {
   public constants: any
 
-  private config: DeepstreamConfig
-  private services: DeepstreamServices
+  protected config: InternalDeepstreamConfig
+  protected services: DeepstreamServices
 
   private messageProcessor: any
   private messageDistributor: any
@@ -55,12 +55,12 @@ export class Deepstream extends EventEmitter {
  * publish-subscribe, request-response, listeneing, permissioning
  * and a host of other features!
  *
- * @copyright 2017 deepstreamHub GmbH
+ * @copyright 2018 deepstreamHub GmbH
  * @author deepstreamHub GmbH
  *
  * @constructor
  */
-  constructor (config: DeepstreamConfig) {
+  constructor (config: DeepstreamConfig | string | null) {
     super()
     this.loadConfig(config)
     this.messageProcessor = null
@@ -97,6 +97,11 @@ export class Deepstream extends EventEmitter {
   public set (key: string, value: any): any {
     if (this.services[key] !== undefined) {
       this.services[key] = value
+      if (key === 'storage' || key === 'cache') {
+        if (this.services[key].apiVersion !== 2) {
+          configInitialiser.storageCompatability(this.services[key])
+        }
+      }
     } else if (this.config[key] !== undefined) {
       this.config[key] = value
     } else {
@@ -193,10 +198,11 @@ export class Deepstream extends EventEmitter {
 /**
  * Invoked once the logger is initialised. Initialises any built-in or custom Deepstream plugins.
  */
-  private pluginInit (): void {
+  protected pluginInit (): void {
     this.services.message = new MessageConnector(this.config, this.services, 'deepstream')
 
     const infoLogger = message => this.services.logger.info(EVENT.INFO, message)
+    infoLogger(`server name: ${this.config.serverName}`)
     infoLogger(`deepstream version: ${pkg.version}`)
 
     // otherwise (no configFile) deepstream was invoked by API
@@ -239,7 +245,7 @@ export class Deepstream extends EventEmitter {
  * Invoked once all plugins are initialised. Instantiates the messaging pipeline and
  * the various handlers.
  */
-  private serviceInit (): void {
+  protected serviceInit (): void {
     this.messageProcessor = new MessageProcessor(this.config, this.services)
     this.messageDistributor = new MessageDistributor(this.config, this.services)
 
@@ -386,13 +392,13 @@ export class Deepstream extends EventEmitter {
  * configInitialiser, but it should not block. Instead the ready events of
  * those plugins are handled through the DependencyInitialiser in this instance.
  */
-  private loadConfig (config: DeepstreamConfig): void {
+  private loadConfig (config: DeepstreamConfig | string | null): void {
     let result
     if (config === null || typeof config === 'string') {
       result = jsYamlLoader.loadConfig(config)
       this.configFile = result.file
     } else {
-      const rawConfig = merge(getDefaultOptions(), config) as DeepstreamConfig
+      const rawConfig = merge(getDefaultOptions(), config) as InternalDeepstreamConfig
       result = configInitialiser.initialise(rawConfig)
     }
     configValidator.validate(result.config)

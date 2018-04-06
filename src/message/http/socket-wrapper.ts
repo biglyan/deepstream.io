@@ -2,7 +2,7 @@
 
 /* eslint-disable class-methods-use-this */
 import { EventEmitter } from 'events'
-import * as messageParser from '../../../protocol/binary/src/message-parser'
+import * as messageParser from '../../../binary-protocol/src/message-parser'
 
 export default class HTTPSocketWrapper extends EventEmitter implements SocketWrapper {
 
@@ -18,6 +18,7 @@ export default class HTTPSocketWrapper extends EventEmitter implements SocketWra
 
   __id: number
   authData: object
+  clientData: object
   authCallback: Function
   isRemote: boolean
   isClosed: boolean = false
@@ -37,6 +38,7 @@ export default class HTTPSocketWrapper extends EventEmitter implements SocketWra
     requestTimeoutId
    ) {
     this.user = authResponseData.userId || authResponseData.username || 'OPEN'
+    this.clientData = authResponseData.clientData
     this.authData = authResponseData.serverData
 
     this._correlationIndex = messageIndex

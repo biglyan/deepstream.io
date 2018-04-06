@@ -1,5 +1,5 @@
 import { TOPIC, ALL_ACTIONS, CONNECTION_ACTIONS, AUTH_ACTIONS, EVENT, PARSER_ACTIONS, ParseResult, Message } from '../../constants'
-import * as messageBuilder from '../../../protocol/binary/src/message-builder'
+import * as messageBuilder from '../../../binary-protocol/src/message-builder'
 import { UwsSocketWrapper, createSocketWrapper } from './socket-wrapper-factory'
 import { EventEmitter } from 'events'
 import * as https from 'https'
@@ -186,13 +186,14 @@ export default class UWSConnectionEndpoint extends EventEmitter implements Conne
         socketWrapper.destroy()
         continue
       }
+      const message = parseResult as Message
       if (
-        parseResult.topic === TOPIC.CONNECTION &&
-        parseResult.action === CONNECTION_ACTIONS.PONG
+        message.topic === TOPIC.CONNECTION &&
+        message.action === CONNECTION_ACTIONS.PONG
       ) {
         continue
       }
-      messages.push(parseResult)
+      messages.push(message)
     }
     return messages
   }
@@ -279,16 +280,16 @@ export default class UWSConnectionEndpoint extends EventEmitter implements Conne
   /**
    * Responds to http health checks.
    * Responds with 200(OK) if deepstream is alive.
-   *
-   * @private
-   * @returns {void}
    */
   private _handleHealthCheck (
     req: http.IncomingMessage,
     res: http.ServerResponse
-  ) {
+  ): void {
     if (req.method === 'GET' && req.url === this.healthCheckPath) {
       res.writeHead(200)
+      res.end()
+    } else {
+      res.writeHead(404)
       res.end()
     }
   }
@@ -481,6 +482,7 @@ export default class UWSConnectionEndpoint extends EventEmitter implements Conne
   private _appendDataToSocketWrapper (socketWrapper: SocketWrapper, userData: any): void {
     socketWrapper.user = userData.username || OPEN
     socketWrapper.authData = userData.serverData || null
+    socketWrapper.clientData = userData.clientData || null
   }
 
   /**

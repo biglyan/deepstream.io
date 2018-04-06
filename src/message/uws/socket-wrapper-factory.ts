@@ -1,6 +1,6 @@
 import { EVENT, TOPIC, CONNECTION_ACTIONS, AUTH_ACTIONS, ParseResult, Message } from '../../constants'
-import * as binaryMessageBuilder from '../../../protocol/binary/src/message-builder'
-import * as binaryMessageParser from '../../../protocol/binary/src/message-parser'
+import * as binaryMessageBuilder from '../../../binary-protocol/src/message-builder'
+import * as binaryMessageParser from '../../../binary-protocol/src/message-parser'
 import * as uws from 'uws'
 import { EventEmitter } from 'events'
 
@@ -33,6 +33,7 @@ export class UwsSocketWrapper extends EventEmitter implements SocketWrapper {
   public static lastPreparedMessage: any
 
   public authData: object
+  public clientData: object
   public isRemote: boolean
 
   constructor (
@@ -190,6 +191,6 @@ export function createSocketWrapper (
   external: any,
   handshakeData: any,
   logger: Logger,
-  config: DeepstreamConfig,
+  config: InternalDeepstreamConfig,
   connectionEndpoint: ConnectionEndpoint
 ) { return new UwsSocketWrapper(external, handshakeData, logger, config, connectionEndpoint) }

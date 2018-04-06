@@ -9,22 +9,19 @@ type LOG_LEVEL = any
 type TOPIC = number
 type EVENT = any
 
-interface StorageRecord {
-  _v: number
-  _d: object
-}
-
 interface SimpleSocketWrapper extends NodeJS.EventEmitter {
   user: string
   isRemote: boolean
   sendMessage (message: Message, buffer?: boolean): void
   sendAckMessage (message: Message, buffer?: boolean): void
+  clientData?: object | null
 }
 
 interface SocketWrapper extends SimpleSocketWrapper {
   uuid: number
   __id: number
-  authData: object
+  authData: object | null
+  clientData: object | null
   getHandshakeData: Function
   onMessage: Function
   authCallback: Function
@@ -114,13 +111,14 @@ interface DeepstreamPlugin extends NodeJS.EventEmitter {
   setRecordHandler? (recordHandler: any): void
 }
 
-type StorageReadCallback = (error: Error | null, result: StorageRecord) => void
-type StorageWriteCallback = (error: Error | null) => void
+type StorageReadCallback = (error: string | null, version: number, result: any) => void
+type StorageWriteCallback = (error: string | null) => void
 
 interface StoragePlugin extends DeepstreamPlugin {
-  set (recordName: string, data: any, callback: StorageWriteCallback, metaData: any): void
-  get (recordName: string, callback: StorageReadCallback, metaData: any): void
-  delete (recordName: string, callback: StorageWriteCallback, metaData: any): void
+  apiVersion?: number
+  set (recordName: string, version: number, data: any, callback: StorageWriteCallback, metaData?: any): void
+  get (recordName: string, callback: StorageReadCallback, metaData?: any): void
+  delete (recordName: string, callback: StorageWriteCallback, metaData?: any): void
 }
 
 interface PermissionHandler extends DeepstreamPlugin {
@@ -151,6 +149,45 @@ interface LockRegistry {
 }
 
 interface DeepstreamConfig {
+  showLogo?: boolean
+  libDir?: string | null
+  logLevel?: number
+  serverName?: string
+  externalUrl?: string | null
+  sslKey?: string | null
+  sslCert?: string | null
+  sslCa?: string | null
+  connectionEndpoints?: any
+
+  plugins?: {
+    cache?: PluginConfig
+    storage?: PluginConfig
+  }
+
+  logger?: PluginConfig
+  auth?: PluginConfig
+  permission?: PluginConfig
+
+  storageExclusionPrefixes?: Array<string>
+  provideRPCRequestorDetails?: boolean
+  rpcAckTimeout?: number
+  rpcTimeout?: number
+  cacheRetrievalTimeout?: number
+  storageRetrievalTimeout?: number
+  storageHotPathPrefixes?: Array<string>
+  dependencyInitialisationTimeout?: number
+  stateReconciliationTimeout?: number
+  clusterKeepAliveInterval?: number
+  clusterActiveCheckInterval?: number
+  clusterNodeInactiveTimeout?: number
+  listenResponseTimeout?: number
+  lockTimeout?: number
+  lockRequestTimeout?: number
+  broadcastTimeout?: number
+  shuffleListenProviders?: boolean
+}
+
+interface InternalDeepstreamConfig {
   showLogo: boolean
   libDir: string | null
   logLevel: number
@@ -171,6 +208,7 @@ interface DeepstreamConfig {
   permission: PluginConfig
 
   storageExclusionPrefixes: Array<string>
+  provideRPCRequestorDetails: boolean
   rpcAckTimeout: number
   rpcTimeout: number
   cacheRetrievalTimeout: number

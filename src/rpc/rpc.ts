@@ -12,7 +12,7 @@ export default class Rpc {
   private rpcHandler: RpcHandler
   private requestor: SimpleSocketWrapper
   private provider: SimpleSocketWrapper
-  private config: DeepstreamConfig
+  private config: InternalDeepstreamConfig
   private services: DeepstreamServices
   private message: Message
   private correlationId: string
@@ -23,7 +23,7 @@ export default class Rpc {
 
   /**
   */
-  constructor (rpcHandler: RpcHandler, requestor: SimpleSocketWrapper, provider: SimpleSocketWrapper, config: DeepstreamConfig, services: DeepstreamServices,  message: RPCMessage) {
+  constructor (rpcHandler: RpcHandler, requestor: SimpleSocketWrapper, provider: SimpleSocketWrapper, config: InternalDeepstreamConfig, services: DeepstreamServices,  message: RPCMessage) {
     this.rpcHandler = rpcHandler
     this.rpcName = message.name
     this.correlationId = message.correlationId
@@ -31,7 +31,14 @@ export default class Rpc {
     this.provider = provider
     this.config = config
     this.services = services
-    this.message = message
+    if (this.config.provideRPCRequestorDetails) {
+      this.message = Object.assign({
+        requestorName: requestor.user,
+        requestorData: requestor.clientData
+      }, message)
+    } else {
+      this.message = message
+    }
     this.isAccepted = false
 
     this.setProvider(provider)
@@ -59,7 +66,7 @@ export default class Rpc {
       this.handleAccept(message)
     } else if (message.action === RPC_ACTIONS.REJECT) {
       this.reroute()
-    } else if (message.action === RPC_ACTIONS.RESPONSE || message.action ===  RPC_ACTIONS.ERROR) {
+    } else if (message.action === RPC_ACTIONS.RESPONSE || message.action ===  RPC_ACTIONS.REQUEST_ERROR) {
       this.requestor.sendMessage(message)
       this.destroy()
     }
