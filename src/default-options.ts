@@ -1,22 +1,36 @@
 import { getUid } from './utils/utils'
-import { LOG_LEVEL } from './constants'
-import LocalCache from './default-plugins/local-cache'
-import NoopStorage from './default-plugins/noop-storage'
-import StdoutLogger from './default-plugins/std-out-logger'
-import OpenAuthenticationHandler from './authentication/open-authentication-handler'
-import OpenPermissionHandler from './permission/open-permission-handler'
-import ClusterNode from './cluster/cluster-node'
-import LockRegistry from './cluster/lock-registry'
+import { DeepstreamConfig, LOG_LEVEL } from '@deepstream/types'
 
-export function get (): InternalDeepstreamConfig {
+const WebSocketDefaultOptions = {
+  urlPath: '/deepstream',
+  heartbeatInterval: 30000,
+  outgoingBufferTimeout: 0,
+  maxBufferByteSize: 100000,
+  noDelay: true,
+  headers: [],
+
+  /*
+   * Security
+   */
+  unauthenticatedClientTimeout: 180000,
+  maxAuthAttempts: 3,
+  logInvalidAuthData: false,
+  perMessageDeflate: false,
+  maxMessageSize: 1048576
+}
+
+export function get (): DeepstreamConfig {
   return {
     /*
      * General
      */
     libDir: null,
     serverName: getUid(),
-    showLogo: true,
-    logLevel: LOG_LEVEL.DEBUG,
+    showLogo: false,
+    logLevel: LOG_LEVEL.INFO,
+    dependencyInitializationTimeout: 2000,
+    // defaults to false as the event is captured via commander when run via binary or standalone
+    exitOnFatalError: false,
 
     /*
      * Connectivity
@@ -24,117 +38,166 @@ export function get (): InternalDeepstreamConfig {
     externalUrl: null,
 
     /*
-     * SSL Configuration
-     */
-    sslKey: null,
-    sslCert: null,
-    sslCa: null,
-
-    /*
-     * Authentication
-     */
-    auth: {
-      type: 'none',
-      options: {}
-    },
-
-    /*
-     * Permissioning
-     */
-    permission: {
-      type: 'none',
-      options: {}
-    },
-
-    /*
      * Connection Endpoints
      */
-    connectionEndpoints: {
-      websocket: {
-        type: 'default',
+    connectionEndpoints: [
+    {
+        type: 'ws-binary',
+        options:  { ...WebSocketDefaultOptions, urlPath: '/deepstream' }
+    },
+    {
+        type: 'ws-text',
+        options: { ...WebSocketDefaultOptions, urlPath: '/deepstream-v3' }
+    },
+    {
+        type: 'ws-json',
+        options: { ...WebSocketDefaultOptions, urlPath: '/deepstream-json' }
+      },
+      {
+        type: 'http',
         options: {
-          port: 6020,
+          allowAuthData: true,
+          enableAuthEndpoint: true,
+          authPath: '/api/auth',
+          postPath: '/api',
+          getPath: '/api'
+        }
+      },
+      {
+        type: 'mqtt',
+        options: {
+          port: 1883,
           host: '0.0.0.0',
-          urlPath: '/deepstream',
-          healthCheckPath: '/health-check',
-          heartbeatInterval: 30000,
-          outgoingBufferTimeout: 0,
-          noDelay: true,
+          idleTimeout: 180000,
 
           /*
            * Security
            */
           unauthenticatedClientTimeout: 180000,
-          maxAuthAttempts: 3,
-          logInvalidAuthData: false,
-          perMessageDeflate: false,
-          maxMessageSize: 1048576
-        }
-      },
-      http: {
-        type: 'default',
-        options: {
-          port: 8080,
-          host: '0.0.0.0',
-          allowAuthData: true,
-          enableAuthEndpoint: true,
-          authPath: '/auth',
-          postPath: '/',
-          getPath: '/',
-          healthCheckPath: '/health-check',
-          allowAllOrigins: true,
-          origins: []
         }
       }
-    },
+    ],
 
     logger: {
       type: 'default',
       options: {}
     },
 
-    plugins: {
-      cache: {
-        type: 'default',
-        options: {}
-      },
-      storage: {
-        type: 'default',
-        options: {}
+    httpServer: {
+      type: 'default',
+      options: {
+        host: '0.0.0.0',
+        port: 6020,
+        healthCheckPath: '/health-check',
+        allowAllOrigins: true,
+        origins: [],
+        headers: [],
+        maxMessageSize: 1024
       }
     },
 
-    /*
-     * Storage options
-     */
-    storageExclusionPrefixes: [],
+    subscriptions: {
+      type: 'default',
+      options: {
+        subscriptionsSanityTimer: 10000
+      }
+    },
 
-    /**
-     * Listening
-     */
-    shuffleListenProviders: true,
+    auth: [{
+      type: 'none',
+      options: {}
+    }],
 
-    /**
-     * RPC
-     */
-    provideRPCRequestorDetails: true,
+    permission: {
+      type: 'none',
+      options: {}
+    },
 
-    /*
-     * Timeouts
-     */
-    rpcAckTimeout: 1000,
-    rpcTimeout: 10000,
-    cacheRetrievalTimeout: 1000,
-    storageRetrievalTimeout: 2000,
-    storageHotPathPrefixes: [],
-    dependencyInitialisationTimeout: 2000,
-    stateReconciliationTimeout: 500,
-    clusterKeepAliveInterval: 5000,
-    clusterActiveCheckInterval: 1000,
-    clusterNodeInactiveTimeout: 6000,
-    listenResponseTimeout: 500,
-    lockTimeout: 1000,
-    lockRequestTimeout: 1000,
-    broadcastTimeout: 0
+    cache: {
+      type: 'default',
+      options: {}
+    },
+
+    storage: {
+      type: 'default',
+      options: {}
+    },
+
+    monitoring: {
+      type: 'none',
+      options: {}
+    },
+
+    locks: {
+      type: 'default',
+      options: {
+        holdTimeout: 1000,
+        requestTimeout: 1000
+      }
+    },
+
+    clusterNode: {
+      type: 'default',
+      options: {
+      }
+    },
+
+    clusterRegistry: {
+      type: 'default',
+      options: {
+        keepAliveInterval: 5000,
+        activeCheckInterval: 1000,
+        nodeInactiveTimeout: 6000
+      }
+    },
+
+    clusterStates: {
+      type: 'default',
+      options: {
+        reconciliationTimeout: 500
+      }
+    },
+
+    plugins: {
+    },
+
+    rpc: {
+      /**
+       * Send requestorName by default.
+       * Overriden by provideRequestorDetails
+       */
+      provideRequestorName: true,
+      /**
+       * Send requestorData by default.
+       * Overriden by provideRequestorDetails
+       */
+      provideRequestorData: true,
+
+      ackTimeout: 1000,
+      responseTimeout: 10000,
+    },
+
+    record: {
+      storageHotPathPrefixes: [],
+      storageExclusionPrefixes: [],
+      cacheRetrievalTimeout: 1000,
+      storageRetrievalTimeout: 2000,
+    },
+
+    listen: {
+      shuffleProviders: true,
+      responseTimeout: 500,
+      rematchInterval: 30000,
+      matchCooldown: 10000
+    },
+
+    enabledFeatures: {
+      record: true,
+      event: true,
+      rpc: true,
+      presence: true,
+      monitoring: true
+    },
   }
+
 }

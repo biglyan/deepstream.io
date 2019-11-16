@@ -1,22 +1,19 @@
-export * from '../binary-protocol/src/message-constants'
-
-export enum LOG_LEVEL {
-    DEBUG = 0,
-    INFO = 1,
-    WARN = 2,
-    ERROR = 3,
-    OFF = 100
-}
+export * from '@deepstream/protobuf/dist/types/all'
+export * from '@deepstream/protobuf/dist/types/messages'
 
 export enum STATES {
-    STOPPED,
-    LOGGER_INIT,
-    PLUGIN_INIT,
-    SERVICE_INIT,
-    CONNECTION_ENDPOINT_INIT,
-    RUNNING,
-    CONNECTION_ENDPOINT_SHUTDOWN,
-    SERVICE_SHUTDOWN,
-    PLUGIN_SHUTDOWN,
-    LOGGER_SHUTDOWN
+    CONFIG_LOADED = 'CONFIG_LOADED',
+    LOGGER_INIT = 'LOGGER_INIT',
+    SERVICE_INIT = 'SERVICE_INIT',
+    HANDLER_INIT = 'HANDLER_INIT',
+    CONNECTION_ENDPOINT_INIT = 'CONNECTION_ENDPOINT_INIT',
+    PLUGIN_INIT = 'PLUGIN_INIT',
+    RUNNING = 'RUNNING',
+
+    PLUGIN_SHUTDOWN = 'PLUGIN_SHUTDOWN',
+    CONNECTION_ENDPOINT_SHUTDOWN = 'CONNECTION_ENDPOINT_SHUTDOWN',
+    HANDLER_SHUTDOWN = 'HANDLER_SHUTDOWN',
+    SERVICE_SHUTDOWN = 'SERVICE_SHUTDOWN',
+    LOGGER_SHUTDOWN = 'LOGGER_SHUTDOWN',
+    STOPPED = 'STOPPED'
 }

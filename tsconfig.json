@@ -1,33 +1,34 @@
 {
   "compilerOptions": {
-    "target": "es6",
+    "target": "ES2018",
     "module": "commonjs",
     "outDir": "dist",
+    "declaration": true,
     "sourceMap": true,
     "allowJs": false,
-    "strictNullChecks": true,
+    "resolveJsonModule": true,
+    "noUnusedLocals": true,
+    "strict": true,
+    "lib": ["es2018"],
     "types": [
-      "node"
-    ],
-    "typeRoots": [
-      "node_modules/@types"
+      "node",
+      "mocha"
     ]
   },
-  "files": [
-    "./node_modules/@types/node/index.d.ts",
-    "./node_modules/@types/jasmine/index.d.ts"
-  ],
   "include": [
     "protocol/**/*",
     "bin/*",
     "src/**/*",
     "src/**/*.json",
-    "test/**/*",
-    "test/**/*.pem",
-    "test/**/*.json",
-    "package.json"
+    "test-e2e/**/*",
+    "package.json", "types/uws.d.ts"
   ],
   "exclude": [
+    "**/*.spec.ts",
     "node_modules"
-  ]
+  ],
+  "files": [
+    "types/global.d.ts",
+    "types/uws.d.ts"
+  ],
 }

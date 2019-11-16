@@ -1,6 +1,14 @@
-import * as dsDaemon from 'deepstream.io-service/src/daemon'
+// @ts-ignore
+import * as dsDaemon from '../src/service/daemon'
+import * as commander from 'commander'
 
-export const daemon = program => {
+// work-around for:
+// TS4023: Exported variable 'command' has or is using name 'local.Command'
+// from external module "node_modules/commander/typings/index" but cannot be named.
+// tslint:disable-next-line: no-empty-interface
+export interface Command extends commander.Command { }
+
+export const daemon = (program: Command) => {
   program
     .command('daemon')
     .description('start a daemon for deepstream server')
@@ -8,10 +16,8 @@ export const daemon = program => {
     .option('-c, --config [file]', 'configuration file, parent directory will be used as prefix for other config files')
     .option('-l, --lib-dir [directory]', 'path where to lookup for plugins like connectors and logger')
 
-    .option('--host <host>', 'host for the HTTP/websocket server')
-    .option('--port <port>', 'port for the HTTP/websocket server')
-    .option('--http-host <host>', 'host for the HTTP server')
-    .option('--http-port <port>', 'port for the HTTP server')
+    .option('--host <host>', 'host for the http service')
+    .option('--port <port>', 'port for the http service')
     .option('--disable-auth', 'Force deepstream to use "none" auth type')
     .option('--disable-permissions', 'Force deepstream to use "none" permissions')
     .option('--log-level <level>', 'Log messages with this level and above')
@@ -19,13 +25,5 @@ export const daemon = program => {
 }
 
 function action () {
-  let processExec
-  try {
-    require('nexeres')
-    processExec = process.argv[0]
-  } catch (e) {
-    processExec = process.argv[1]
-  }
-
-  dsDaemon.start({ processExec })
+  dsDaemon.start({ processExec: process.argv[1] })
 }

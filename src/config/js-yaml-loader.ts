@@ -4,25 +4,27 @@ import * as path from 'path'
 
 import { get as getDefaultOptions } from '../default-options'
 import { merge } from '../utils/utils'
+import { DeepstreamConfig, LOG_LEVEL, EVENT } from '@deepstream/types'
+import Deepstream from '../deepstream.io'
+import * as configInitializer from './config-initialiser'
+import * as fileUtils from './file-utils'
 
-const configInitialiser = require('./config-initialiser')
-const fileUtils = require('./file-utils')
+export type InitialLogs = Array<{
+  level: LOG_LEVEL
+  message: string
+  event: any,
+  meta: any
+}>
 
 const SUPPORTED_EXTENSIONS = ['.yml', '.yaml', '.json', '.js']
 const DEFAULT_CONFIG_DIRS = [
-  path.join('.', 'conf', 'config'), path.join('..', 'conf', 'config'),
-  '/etc/deepstream/config', '/usr/local/etc/deepstream/config',
-  '/usr/local/etc/deepstream/conf/config',
+  '/etc/deepstream/conf',
+  path.join('.', 'conf', 'config'),
+  path.join('..', 'conf', 'config')
 ]
 
-try {
-  require('nexeres') // tslint:disable-line
-  DEFAULT_CONFIG_DIRS.push(path.join(process.argv[0], '..', 'conf', 'config'))
-  DEFAULT_CONFIG_DIRS.push(path.join(process.argv[0], '..', '..', 'conf', 'config'))
-} catch (e) {
-  DEFAULT_CONFIG_DIRS.push(path.join(__dirname, '..', 'conf', 'config'))
-  DEFAULT_CONFIG_DIRS.push(path.join(__dirname, '..', '..', 'conf', 'config'))
-}
+DEFAULT_CONFIG_DIRS.push(path.join(process.argv[1], '..', 'conf', 'config'))
+DEFAULT_CONFIG_DIRS.push(path.join(process.argv[1], '..', '..', 'conf', 'config'))
 
 /**
  * Reads and parse a general configuration file content.
@@ -47,13 +49,23 @@ export const readAndParseFile = function (filePath: string, callback: Function):
 }
 
 /**
- * Loads a config file without having to initialise it. Useful for one
+ * Loads a config file without having to initialize it. Useful for one
  * off operations such as generating a hash via cli
  */
-export const loadConfigWithoutInitialisation = function (filePath?: string, args?: object): any {
+export const loadConfigWithoutInitialization = async function (filePath: string | null = null, initialLogs: InitialLogs = [], args?: object): Promise<{
+  config: DeepstreamConfig,
+  configPath: string
+}> {
+  // @ts-ignore
   const argv = args || global.deepstreamCLI || {}
   const configPath = setGlobalConfigDirectory(argv, filePath)
-  const configString = fs.readFileSync(configPath, { encoding: 'utf8' })
+
+  let configString = fs.readFileSync(configPath, { encoding: 'utf8' })
+  configString = configString.replace(/(^#)*#.*$/gm, '$1')
+  configString = configString.replace(/^\s*\n/gm, '')
+  configString = lookupConfigPaths(configString)
+  configString = await loadFiles(configString, initialLogs)
+
   const rawConfig = parseFile(configPath, configString)
   const config = extendConfig(rawConfig, argv)
   setGlobalLibDirectory(argv, config)
@@ -70,9 +82,10 @@ export const loadConfigWithoutInitialisation = function (filePath?: string, args
  * Configuraiton file will be transformed to a deepstream object by evaluating
  * some properties like the plugins (logger and connectors).
  */
-export const loadConfig = function (filePath: string | null, args?: object) {
-  const config = exports.loadConfigWithoutInitialisation(filePath, args)
-  const result = configInitialiser.initialise(config.config)
+export const loadConfig = async function (deepstream: Deepstream, filePath: string | null, args?: object) {
+  const logs: InitialLogs = []
+  const config = await loadConfigWithoutInitialization(filePath, logs, args)
+  const result = configInitializer.initialize(deepstream, config.config, logs)
   return {
     config: result.config,
     services: result.services,
@@ -87,7 +100,7 @@ export const loadConfig = function (filePath: string | null, args?: object) {
  *
  * If no fileContent is passed the file is read synchronously
  */
-function parseFile (filePath: string, fileContent: string): InternalDeepstreamConfig {
+function parseFile<ConfigType = DeepstreamConfig> (filePath: string, fileContent: string): ConfigType {
   const extension = path.extname(filePath)
 
   if (extension === '.yml' || extension === '.yaml') {
@@ -105,7 +118,7 @@ function parseFile (filePath: string, fileContent: string): InternalDeepstreamCo
 * Set the globalConfig prefix that will be used as the directory for ssl, permissions and auth
 * relative files within the config file
 */
-function setGlobalConfigDirectory (argv: any, filePath?: string): string {
+function setGlobalConfigDirectory (argv: any, filePath?: string | null): string {
   const customConfigPath =
       argv.c ||
       argv.config ||
@@ -114,6 +127,8 @@ function setGlobalConfigDirectory (argv: any, filePath?: string): string {
   const configPath = customConfigPath
     ? verifyCustomConfigPath(customConfigPath)
     : getDefaultConfigPath()
+
+  // @ts-ignore
   global.deepstreamConfDir = path.dirname(configPath)
   return configPath
 }
@@ -122,12 +137,14 @@ function setGlobalConfigDirectory (argv: any, filePath?: string): string {
 * Set the globalLib prefix that will be used as the directory for the logger
 * and plugins within the config file
 */
-function setGlobalLibDirectory (argv: any, config: InternalDeepstreamConfig): void {
+function setGlobalLibDirectory (argv: any, config: DeepstreamConfig): void {
+  // @ts-ignore
   const libDir =
       argv.l ||
       argv.libDir ||
       (config.libDir && fileUtils.lookupConfRequirePath(config.libDir)) ||
       process.env.DEEPSTREAM_LIBRARY_DIRECTORY
+  // @ts-ignore
   global.deepstreamLibDir = libDir
 }
 
@@ -135,35 +152,15 @@ function setGlobalLibDirectory (argv: any, config: InternalDeepstreamConfig): vo
  * Augments the basic configuration with command line parameters
  * and normalizes paths within it
  */
-function extendConfig (config: any, argv: any): InternalDeepstreamConfig {
+function extendConfig (config: any, argv: any): DeepstreamConfig {
   const cliArgs = {}
   let key
 
   for (key in getDefaultOptions()) {
-    cliArgs[key] = argv[key]
-  }
-  if (argv.port) {
-    overrideEndpointOption('port', argv.port, 'websocket', config)
-  }
-  if (argv.host) {
-    overrideEndpointOption('host', argv.host, 'websocket', config)
-  }
-  if (argv.httpPort) {
-    overrideEndpointOption('port', argv.httpPort, 'http', config)
-  }
-  if (argv.httpHost) {
-    overrideEndpointOption('host', argv.httpHost, 'http', config)
+    (cliArgs as any)[key] = argv[key]
   }
 
-  return merge({ plugins: {} }, getDefaultOptions(), config, cliArgs) as InternalDeepstreamConfig
-}
-
-function overrideEndpointOption (key: string, value: string, endpoint: string, config: InternalDeepstreamConfig) {
-  try {
-    config.connectionEndpoints[endpoint].options[key] = value
-  } catch (exception) {
-    throw new Error(`${key} could not be set: ${endpoint} connection endpoint not found`)
-  }
+  return merge({ plugins: {} }, getDefaultOptions(), config, cliArgs) as DeepstreamConfig
 }
 
 /**
@@ -198,7 +195,7 @@ function getDefaultConfigPath (): string {
 }
 
 /**
- * Handle the introduction of global enviroment variables within
+ * Handle the introduction of global environment variables within
  * the yml file, allowing value substitution.
  *
  * For example:
@@ -210,4 +207,60 @@ function getDefaultConfigPath (): string {
 function replaceEnvironmentVariables (fileContent: string): string {
   const environmentVariable = new RegExp(/\${([^}]+)}/g)
   return fileContent.replace(environmentVariable, (a, b) => process.env[b] || '')
+}
+
+function lookupConfigPaths (fileContent: string): string {
+  const matches = fileContent.match(/file\((.*)\)/g)
+  if (matches) {
+    matches.forEach((match) => {
+      const [, filename] = match.match(/file\((.*)\)/) as any
+      fileContent = fileContent.replace(match, fileUtils.lookupConfRequirePath(filename))
+    })
+  }
+  return fileContent
+}
+
+async function loadFiles (fileContent: string, initialLogs: InitialLogs): Promise<string> {
+  const matches = fileContent.match(/fileLoad\((.*)\)/g)
+  if (matches) {
+    const promises = matches.map(async (match) => {
+      const [, filename] = match.match(/fileLoad\((.*)\)/) as any
+      try {
+        let content: string = await new Promise((resolve, reject) =>
+          fs.readFile(fileUtils.lookupConfRequirePath(filename), { encoding: 'utf8' }, (err, data) => {
+            err ? reject(err) : resolve(data)
+          })
+        )
+        content = replaceEnvironmentVariables(content)
+        try {
+          if (['.yml', '.yaml', '.js', '.json'].includes(path.extname(filename))) {
+            content = parseFile(filename, content)
+          }
+          initialLogs.push({
+            level: LOG_LEVEL.INFO,
+            message: `Loaded content from ${fileUtils.lookupConfRequirePath(filename)} for ${match}`,
+            event: EVENT.CONFIG_TRANSFORM,
+            meta: undefined
+          })
+        } catch (e) {
+          initialLogs.push({
+            level: LOG_LEVEL.FATAL,
+            event: EVENT.CONFIG_ERROR,
+            message: `Error loading config file, invalid format in file ${fileUtils.lookupConfRequirePath(filename)} for ${match}`,
+            meta: undefined
+          })
+        }
+        fileContent = fileContent.replace(match, JSON.stringify(content))
+      } catch (e) {
+        initialLogs.push({
+          level: LOG_LEVEL.FATAL,
+          event: EVENT.CONFIG_ERROR,
+          message: `Error loading config file, missing file ${fileUtils.lookupConfRequirePath(filename)} for ${match}`,
+          meta: undefined
+        })
+      }
+    })
+    await Promise.all(promises)
+  }
+  return fileContent
 }

@@ -1,5 +1,5 @@
-import { EventEmitter } from 'events'
 import * as url from 'url'
+import * as crypto from 'crypto'
 
 /**
  * Returns a unique identifier
@@ -9,32 +9,14 @@ export let getUid = function (): string {
 }
 
 /**
- * Calls <callback> once all <emitters> have emitted <event>
- */
-export let combineEvents = function (emitters: Array<EventEmitter>, event: string, callback: Function): void {
-  let i
-  let count = 0
-  const increment = function () {
-    count++
-
-    if (count === emitters.length) {
-      callback()
-    }
-  }
-
-  for (i = 0; i < emitters.length; i++) {
-    emitters[i].once(event, increment)
-  }
-}
-
-/**
  * Takes a key-value map and returns
  * a map with { value: key } of the old map
  */
-export let reverseMap = function (map: Object): object {
+export let reverseMap = function (map: any): any {
   const reversedMap = {}
 
   for (const key in map) {
+    // @ts-ignore
     reversedMap[map[key]] = key
   }
 
@@ -61,7 +43,7 @@ export let isOfType = function (input: any, expectedType: string): boolean {
  * json schema in the form { key: type }
  * @returns {Boolean|Error}
  */
-export let validateMap = function (map: object, throwError: boolean, schema: Object): any {
+export let validateMap = function (map: any, throwError: boolean, schema: any): any {
   let error
   let key
 
@@ -89,15 +71,15 @@ export let validateMap = function (map: object, throwError: boolean, schema: Obj
 }
 
 /**
- * Multi Object recoursive merge
- * @param {Object} multiple objects to be merged into each other recoursively
+ * Multi Object recursive merge
+ * @param {Object} multiple objects to be merged into each other recursively
  */
-export let merge = function (...args) {
+export let merge = function (...args: any[]) {
   const result = {}
   const objs = Array.prototype.slice.apply(arguments)
   let i
 
-  const internalMerge = (objA, objB) => {
+  const internalMerge = (objA: any, objB: any) => {
     let key
 
     for (key in objB) {
@@ -117,33 +99,11 @@ export let merge = function (...args) {
   return result
 }
 
-/**
- * Set timeout utility that adds support for disabling a timeout
- * by passing null
- */
-export let setTimeout = function (callback: Function, timeoutDuration: number): any {
-  if (timeoutDuration !== null) {
-    return setTimeout(callback, timeoutDuration)
-  }
-  return -1
-}
-
-/**
- * Set Interval utility that adds support for disabling an interval
- * by passing null
- */
-export let setInterval = function (callback: Function, intervalDuration: number): any {
-  if (intervalDuration !== null) {
-    return setInterval(callback, intervalDuration)
-  }
-  return -1
-}
-
 export let getRandomIntInRange = function (min: number, max: number): number {
   return min + Math.floor(Math.random() * (max - min))
 }
 
-export let spliceRandomElement = function (array: Array<any>): any {
+export let spliceRandomElement = function (array: any[]): any {
   const randomIndex = getRandomIntInRange(0, array.length)
   return array.splice(randomIndex, 1)[0]
 }
@@ -152,7 +112,7 @@ export let spliceRandomElement = function (array: Array<any>): any {
  * Randomize array element order in-place.
  * Using Durstenfeld shuffle algorithm.
  */
-export let shuffleArray = function (array: Array<any>): Array<any> {
+export let shuffleArray = function (array: any[]): any[] {
   for (let i = array.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))
     const temp = array[i]
@@ -166,13 +126,13 @@ export let shuffleArray = function (array: Array<any>): Array<any> {
  * Recursively freeze a deeply nested object
  * https://developer.mozilla.org/en/docs/Web/JavaScript/Reference/Global_Objects/Object/freeze
  */
-export let deepFreeze = function (obj: object): object {
+export let deepFreeze = function (obj: any): any {
 
   // Retrieve the property names defined on obj
   const propNames = Object.getOwnPropertyNames(obj)
 
   // Freeze properties before freezing self
-  propNames.forEach(name => {
+  propNames.forEach((name) => {
     const prop = obj[name]
 
     // Freeze prop if it is an object
@@ -188,15 +148,45 @@ export let deepFreeze = function (obj: object): object {
 /**
  * Check whether a record name should be excluded from storage
  */
-export const isExcluded = function (exclusionPrefixes: Array<string>, recordName: string): boolean {
+export const isExcluded = function (exclusionPrefixes: string[], recordName: string): boolean {
   if (!exclusionPrefixes) {
     return false
   }
 
-  for (let i = 0; i < exclusionPrefixes.length; i++) {
-    if (recordName.startsWith(exclusionPrefixes[i])) {
+  for (const exclusionPrefix of exclusionPrefixes) {
+    if (recordName.startsWith(exclusionPrefix)) {
       return true
     }
   }
+
   return false
+}
+
+export const PromiseDelay = (timeout: number) => {
+  return new Promise((resolve) => setTimeout(resolve, timeout))
+}
+
+ /**
+  * Utility method for creating hashes including salts based on
+  * the provided parameters
+  */
+export const createHash = (password: string, settings: { iterations: number, keyLength: number, algorithm: string }, salt: string = crypto.randomBytes(16).toString('base64')): Promise<{ hash: Buffer, salt: string}> => {
+  return new Promise((resolve, reject) => {
+    crypto.pbkdf2(
+      password,
+      salt,
+      settings.iterations,
+      settings.keyLength,
+      settings.algorithm,
+      (err, hash) => {
+        err ? reject(err) : resolve({ hash, salt })
+      }
+    )
+  })
+}
+
+export const validateHashingAlgorithm = (hash: string): void => {
+  if (crypto.getHashes().indexOf(hash) === -1) {
+    throw new Error(`Unknown Hash ${hash}`)
+  }
 }

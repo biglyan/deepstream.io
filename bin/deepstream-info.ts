@@ -3,8 +3,15 @@ import * as path from 'path'
 import * as os from 'os'
 import * as glob from 'glob'
 import * as jsYamlLoader from '../src/config/js-yaml-loader'
+import * as commander from 'commander'
 
-export const info = program => {
+// work-around for:
+// TS4023: Exported variable 'command' has or is using name 'local.Command'
+// from external module "node_modules/commander/typings/index" but cannot be named.
+// tslint:disable-next-line: no-empty-interface
+export interface Command extends commander.Command { }
+
+export const info = (program: Command) => {
   program
     .command('info')
     .description('print meta information about build and runtime')
@@ -13,11 +20,13 @@ export const info = program => {
     .action(printMeta)
 }
 
-function printMeta () {
+async function printMeta (this: any) {
   if (!this.libDir) {
     try {
+      // @ts-ignore
       global.deepstreamCLI = this
-      jsYamlLoader.loadConfigWithoutInitialisation()
+      await jsYamlLoader.loadConfigWithoutInitialization()
+      // @ts-ignore
       this.libDir = global.deepstreamLibDir
     } catch (e) {
       console.log(e)
@@ -46,10 +55,10 @@ function printMeta () {
   console.log(JSON.stringify(meta, null, 2))
 }
 
-function fetchLibs (libDir, meta) {
+function fetchLibs (libDir: string, meta: any) {
   const directory = libDir || 'lib'
   const files = glob.sync(path.join(directory, '*', 'package.json'))
-  meta.libs = files.map(filePath => {
+  meta.libs = files.map((filePath) => {
     const pkg = fs.readFileSync(filePath, 'utf8')
     const object = JSON.parse(pkg)
     return `${object.name}:${object.version}`

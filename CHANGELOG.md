@@ -1,35 +1,226 @@
-## [4.0.0-beta.2] - 2017.11.20
+
+## [5.0.4] - 2019.11.05
+
+### Fix
+
+- Provide all HTTP headers to auth endpoint when using ws
+
+## [5.0.3] - 2019.11.05
+
+### Feat
+
+- Adding a log monitoring plugin, useful for kibana log forwarding
+- Adding header authentication for http monitoring
+
+## [5.0.2] - 2019.11.04
+
+### Fix
+
+- Production only dependency did not include ds-types
+- Close down MQTT server on stop
+
+## [5.0.1] - 2019.11.02
 
 ### Features
 
-#### Binary Protocol
+- Replaces ENV variables in config loaded using fileLoader [#1022](https://github.com/deepstreamIO/deepstream.io/issues/1022)
 
-A full implementation of the Universal Realtime Protocol (URP) has been included as a submodule dependency of deepstream >= 4.0.0. It provides a stable platform for realtime applications and eases the building of client libraries by providing a more robust specification. 
-The protocol now uses binary WebSocket frames, which will allow for custom payload encodings in a future update.
+### Fixes
+
+- Fixes odd types scripting issue breaking plugin interfaces when using `deepstream.getServices()`
+- Fixes hash generation via CLI [#1025](https://github.com/deepstreamIO/deepstream.io/issues/1025)
+
+## [5.0.0] - 2019.10.27
+
+### Features:
+
+- New License
+- Singular HTTP Service
+- SSL Support reintroduced
+- Better Config file validation
+- JSON Logger
+- NGINX Helper
+- Combined authentication handler
+- Embedded dependencies
+- Builtin HTTP Monitoring
+- Storage authentication endpoint
+- Guess whats back, official clustering support!
+
+### Backwards compatibility
+
+- Custom authentication plugins now have to use the async/await API
+- Custom permission handlers need to slightly tweak the function arguments
+- Deployment configuration has to be (simplified) to respect the single HTTP/Websocket port
+
+### Upgrade guide
+
+You can see the upgrade guide for backwards compatibility [here](https://deepstream.io/tutorials/upgrade-guides/v5/server/)
+
+## [4.2.5] - 2019.10.01
+
+### Fix
+
+Removing dom lib from typescript, which exposed variables that throw exceptions #1008
+
+## [4.2.4] - 2019.10.01
+
+### Fix
+
+Cannot read property 'N' of undefined #920
+
+## [4.2.3] - 2019.10.01
+
+### Improvement
+
+Hardening the config validator
+
+### Fix
+
+Allow empty password for mqtt endpoint when authentication is not enabled (@Aapkostka) #1003
+
+ResolvePluginClass should look for lowercase plugins #1002
+
+RPC not routed to different deepstream node depending on startup order #1001
+
+### Misc
+
+Updating dependencies
+
+## [4.2.2] - 2019.09.17
+
+### Fix
+
+Adding health-checks for all ws based endpoints.
+
+## [4.2.1] - 2019.09.17
+
+### Fix
+
+Remove conflicting port for those starting using node with an empty config object.
+
+### Improvement
+
+Limit the dead socket log to reduce insane spam.
+
+## [4.2.0] - 2019.09.09
+
+### Feat
+
+Two new connection endpoints have been added. They are currently experimental and will be properly
+announced with associated documentation. 
+
+One endpoint is mqtt! This allows us to support mqtt auth (using username and password), retain using records and QoS 1 using write acks. The only issue is since mqtt only supports one sort
+of concept (with flags distinguishing them) we bridge both events and records together. That means if you subscribe to 'temperature/london', you'll get the update from both a client doing `event.emit('temperature/london')` and `record.setData('temperature/london')`.
+
+The second endpoint is `ws-json` which allows users to interact with deepstream by just passing through json serialized text blobs instead of protobuf. This is mainly to help a few people trying to write SDKs without the hassle of a protobuf layer.
+
+Value also injects a `name` variable which allows you to reference the name your currently in. Useful for cross referencing.
+
+### Fix
+
+Subscription registry seemed to have a massive leak when it came to dead sockets! This has now been fixed. The sockets seemed to have gotten the remove event deleted earlier in their lifecycle which prohibited it from doing a proper clean up later. 
+
+## [4.1.0] - 2019.08.30
+  
+### Feat
+
+Backwards compatibility with V3 clients / text protocol using a ws-text connection endpoint
+
+This has a couple of small differences, like `has` is no longer supported and `snapshot` errors
+are exposed using the global `error` callback instead of via the response. Otherwise all the e2e 
+tests work, and best of all you can run both at the same time if you want to run JS 4.0 
+and Java 3.0 simultaneously!
+
+It is worth keeping in mind there is a small CPU overhead between switching from V3 custom deepstream
+encoding to JSON (V4), so it is advised to monitor your CPU when possible!
+
+```
+- type: ws-text
+    options:
+        # port for the websocket server
+        port: 6021
+        # host for the websocket server
+        host: 0.0.0.0
+```
+
+## [4.0.6] - 2019.08.19
+  
+### Feat
+
+Allow SUBSCRIBE and READ without CREATE actions, for clients that are in read only mode
+
+### Improvement
+
+Adding declaration types (thank you @Vortex375!)
+
+## [4.0.5] - 2019.08.09
+  
+### Improvement
+
+Adding meta objects to logs and monitoring for easier tagging to monitoring solutions
+
+## [4.0.4] - 2019.08.05
+  
+### Fix
+
+- Don't buffer error messages in relation to connections, otherwise the client will get the close event first
+- Ignore ping messages during the connecting and authenticating stages
+
+## [4.0.3] - 2019.08.04
+
+### Fix
+
+- Notify monitoring plugin of all messages sent out individually
+
+## [4.0.2] - 2019.08.03
+
+### Features
+
+- Alpine docker image
+
+### Fix
+
+- Override the http port and host correctly
+
+## [4.0.1] - 2019.07.31
 
 ### Improvements
 
-- For this release we rewrote the server large portions of the server in TypeScript which helped to uncover a number of bugs in the previous implementation. 
+- Exit immediately if HTTP server port is occupied
+- When using debug, log exact error to why a plugin could not be loaded
 
-### Breaking Changes
+## [4.0.0] - 2019.07.30
 
-- As part of the move to URP, this release breaks support for all client libraries prior to version 4. Most clients will require significant changes to support the new protocol. For reference, [see the v4 rewrite of the javascript client](https://github.com/deepstreamIO/deepstream.io-client-js#v4).
+### Features:
 
-- the [`storageHotPathPatterns` config option](https://deepstreamhub.com/docs/server/configuration/#storagehotpathpatterns) has been renamed to `storageHotPathPrefixes` since this better represents what it is.
+- New protobuf protocol support (under the hood)
+- Bulk actions instead of individual subscribes (under the hood)
+- Official Plugin Support
+- Monitoring Support
+- Clustering Support (with small caveats)
+- Listening Discovery Simplification
+- V2 storage API
+- V2 cache API
+- Notify API
 
-- the [`storageExclusion` config option](https://deepstreamhub.com/docs/server/configuration/#storageexclusion) has been changed to an array of strings called `storageExclusionPrefixes` for consistency with `storageHotPathPatterns`.
+### Improvements
 
-- Due to our move to Typescript/ES6 modules, the node API no longer exports a class at the top level. The following demonstrates the change required:
+- Lazy data parsing
+- Improved deepstream lifecycle
+- Upgraded development tools
+- New deepstream.io website
 
-```js
-// old format
-const Deepstream = require('deepstream.io')
+### Backwards compatibility
 
-// new format (UMD)
-const { Deepstream } = require('deepstream.io')
-// new format (ES6)
-import { Deepstream } from 'deepstream.io'
-```
+- All V3 SDKs no longer compatible due to protobuf binary protocol
+
+### Upgrade guide
+
+You can see the upgrade guide for backwards compatibility [here](https://deepstream.io/tutorials/upgrade-guides/v4/server/)
+
+### TLDR;
+
+You can see the in depth side explanation of the changes [here](https://deepstream.io/releases/server/v4-0-0/)
 
 ## [3.1.0] - 2017.09.25
 
@@ -353,7 +544,7 @@ Due to the nature of this fix, it may result in compatability issues with applic
 
 ### Bug Fixes
 
-- Fix wrong validation of valve permissions when `data` is used as a property [#346](https://github.com/deepstreamIO/deepstream.io/pull/346)
+- Fix wrong validation of Valve Permissions when `data` is used as a property [#346](https://github.com/deepstreamIO/deepstream.io/pull/346)
 
 ### Enhancements
 
@@ -467,7 +658,7 @@ There are different options what you can pass:
   - passing a string which is a path to a configuration file, supported formats: __.yml__, __.json__ and __.js__
   - passing an object which defines several options, all other options will be merged from deepstream's default values
 
-###### Valve permissions rules
+###### Valve Permissions rules
 You can write your permission into a structured file. This file supports a special syntax, which allows you to do advanced permission checks. This syntax is called __Valve__.
 
 #### Enhancements
@@ -476,7 +667,7 @@ You can write your permission into a structured file. This file supports a speci
 deepstream now uses [uws](https://github.com/uWebSockets/uWebSockets), a native C++ websocket server
 
 ###### no process.exit on plugin initialization error or timeout
-deepstream will not longer stops your process via `process.exit()`. This happened before when a connector failed to initialise correctly [#243](https://github.com/deepstreamIO/deepstream.io/issues/243) instead it will throw an error now.
+deepstream will not longer stops your process via `process.exit()`. This happened before when a connector failed to initialize correctly [#243](https://github.com/deepstreamIO/deepstream.io/issues/243) instead it will throw an error now.
 
 Currently the API provides no event or callback to handle this error
 other than subscribing to the global `uncaughtException` event.

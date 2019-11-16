@@ -2,7 +2,7 @@
 
 deepstream is an open source server inspired by concepts behind financial trading technology. It allows clients and backend services to sync data, send messages and make rpcs at very high speed and scale.
 
-[![Build Status](https://travis-ci.org/deepstreamIO/deepstream.io.svg?branch=master)](https://travis-ci.org/deepstreamIO/deepstream.io) [![npm version](https://badge.fury.io/js/deepstream.io.svg)](http://badge.fury.io/js/deepstream.io) [![Coverage Status](https://coveralls.io/repos/github/deepstreamIO/deepstream.io/badge.svg?branch=master)](https://coveralls.io/github/deepstreamIO/deepstream.io?branch=master) [![dependencies Status](https://david-dm.org/deepstreamIO/deepstream.io/status.svg)](https://david-dm.org/deepstreamIO/deepstream.io) [![devDependencies Status](https://david-dm.org/deepstreamIO/deepstream.io/dev-status.svg)](https://david-dm.org/deepstreamIO/deepstream.io?type=dev)
+[![Build Status](https://travis-ci.org/deepstreamIO/deepstream.io.svg?branch=master)](https://travis-ci.org/deepstreamIO/deepstream.io) [![npm version](https://badge.fury.io/js/deepstream.io.svg)](http://badge.fury.io/js/deepstream.io)[![dependencies Status](https://david-dm.org/deepstreamIO/deepstream.io/status.svg)](https://david-dm.org/deepstreamIO/deepstream.io) [![devDependencies Status](https://david-dm.org/deepstreamIO/deepstream.io/dev-status.svg)](https://david-dm.org/deepstreamIO/deepstream.io?type=dev)[![Docker Stars](https://img.shields.io/docker/pulls/deepstreamio/deepstream.io.svg)](https://hub.docker.com/r/deepstreamio/deepstream.io/)
 
 deepstream has three core concepts for enabling realtime application development
 
@@ -21,7 +21,7 @@ remote procedure calls allow for secure and highly available request response co
 ### Getting Started:
 
 1. [Installing deepstream](https://deepstream.io/install/)
-2. [Quickstart](https://deepstream.io/tutorials/core/getting-started-quickstart/)
+2. [Quickstart](https://deepstream.io/tutorials/getting-started/javascript/)
 3. [Tutorials](https://deepstream.io/tutorials/)
 4. [Documentation](https://deepstream.io/docs/)
 
@@ -33,7 +33,7 @@ remote procedure calls allow for secure and highly available request response co
 
 ### Contributing
 
-deepstream development is a great way to get into building performant Node.js applications, and contributions are always welcome with lots of ❤. Contributing to deepstream is as simple as having Node.js (6+) and TypeScript (2+) installed, cloning the repo and making some changes.
+deepstream development is a great way to get into building performant Node.js applications, and contributions are always welcome with lots of ❤. Contributing to deepstream is as simple as having Node.js (10+) and TypeScript (3+) installed, cloning the repo and making some changes.
 
 ```
 ~ » git clone git@github.com:deepstreamIO/deepstream.io.git

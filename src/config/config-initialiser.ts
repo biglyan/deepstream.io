@@ -1,21 +1,68 @@
-import * as fs from 'fs'
-import FileAuthenticationHandler from '../authentication/file-based-authentication-handler'
-import OpenAuthenticationHandler from '../authentication/open-authentication-handler'
-import HTTPAuthenticationHAndler from '../authentication/http-authentication-handler'
-import { LOG_LEVEL } from '../constants'
-import DefaultCache from '../default-plugins/local-cache'
-import DefaultStorage from '../default-plugins/noop-storage'
-import DefaultLogger from '../default-plugins/std-out-logger'
-import HTTPConnectionEndpoint from '../message/http/connection-endpoint'
-import UWSConnectionEndpoint from '../message/uws/connection-endpoint'
-import ConfigPermissionHandler from '../permission/config-permission-handler'
-import OpenPermissionHandler from '../permission/open-permission-handler'
+import { readFileSync } from 'fs'
+import { join } from 'path'
+import { EOL } from 'os'
+
 import * as utils from '../utils/utils'
 import * as fileUtils from './file-utils'
+import { DeepstreamConfig, DeepstreamServices, DeepstreamConnectionEndpoint, PluginConfig, DeepstreamLogger, DeepstreamAuthentication, DeepstreamPermission, LOG_LEVEL, EVENT, DeepstreamMonitoring, DeepstreamAuthenticationCombiner, DeepstreamHTTPService } from '@deepstream/types'
+import { DistributedClusterRegistry } from '../services/cluster-registry/distributed-cluster-registry'
+import { SingleClusterNode } from '../services/cluster-node/single-cluster-node'
+import { DefaultSubscriptionRegistryFactory } from '../services/subscription-registry/default-subscription-registry-factory'
+import { HTTPConnectionEndpoint } from '../connection-endpoint/http/connection-endpoint'
+import { CombineAuthentication } from '../services/authentication/combine/combine-authentication'
+import { OpenAuthentication } from '../services/authentication/open/open-authentication'
+import { ConfigPermission } from '../services/permission/valve/config-permission'
+import { OpenPermission } from '../services/permission/open/open-permission'
+import { WSBinaryConnectionEndpoint } from '../connection-endpoint/websocket/binary/connection-endpoint'
+import { WSTextConnectionEndpoint } from '../connection-endpoint/websocket/text/connection-endpoint'
+import { WSJSONConnectionEndpoint } from '../connection-endpoint/websocket/json/connection-endpoint'
+import { MQTTConnectionEndpoint } from '../connection-endpoint/mqtt/connection-endpoint'
+import { FileBasedAuthentication } from '../services/authentication/file/file-based-authentication'
+import { StorageBasedAuthentication } from '../services/authentication/storage/storage-based-authentication'
+import { HttpAuthentication } from '../services/authentication/http/http-authentication'
+import { NoopStorage } from '../services/storage/noop-storage'
+import { LocalCache } from '../services/cache/local-cache'
+import { StdOutLogger } from '../services/logger/std/std-out-logger'
+import { PinoLogger } from '../services/logger/pino/pino-logger'
 
-let commandLineArguments
+import { NoopMonitoring } from '../services/monitoring/noop-monitoring'
+import { DistributedLockRegistry } from '../services/lock/distributed-lock-registry'
+import { DistributedStateRegistryFactory } from '../services/cluster-state/distributed-state-registry-factory'
+import { get as getDefaultOptions } from '../default-options'
+import Deepstream from '../deepstream.io'
+import { NodeHTTP } from '../services/http/node/node-http'
+import HTTPMonitoring from '../services/monitoring/http/monitoring-http'
+import LogMonitoring from '../services/monitoring/log/monitoring-log'
+import { InitialLogs } from './js-yaml-loader'
+import * as configValidator from './config-validator'
+
+let commandLineArguments: any
 
 const customPlugins = new Map()
+
+const defaultPlugins = new Map<keyof DeepstreamServices, any>([
+  ['cache', LocalCache],
+  ['storage', NoopStorage],
+  ['logger', StdOutLogger],
+  ['locks', DistributedLockRegistry],
+  ['subscriptions', DefaultSubscriptionRegistryFactory],
+  ['clusterRegistry', DistributedClusterRegistry],
+  ['clusterStates', DistributedStateRegistryFactory],
+  ['clusterNode', SingleClusterNode],
+  ['httpService', NodeHTTP],
+])
+
+export const mergeConnectionOptions = function (config: any) {
+  if (config && config.connectionEndpoints) {
+    const defaultConfig = getDefaultOptions()
+    for (const connectionEndpoint of config.connectionEndpoints) {
+      const defaultPlugin = defaultConfig.connectionEndpoints.find((defaultEndpoint) => defaultEndpoint.type === connectionEndpoint.type)
+      if (defaultPlugin) {
+        connectionEndpoint.options = utils.merge(defaultPlugin.options, connectionEndpoint.options)
+      }
+    }
+  }
+}
 
 /**
  * Registers plugins by name. Useful when wanting to include
@@ -29,30 +76,65 @@ export const registerPlugin = function (name: string, construct: Function) {
  * Takes a configuration object and instantiates functional properties.
  * CLI arguments will be considered.
  */
-export const initialise = function (config: InternalDeepstreamConfig): { config: InternalDeepstreamConfig, services: DeepstreamServices } {
+export const initialize = function (deepstream: Deepstream, config: DeepstreamConfig, initialLogs: InitialLogs = []): { config: DeepstreamConfig, services: DeepstreamServices } {
+  configValidator.validate(config)
+
+  if (config.showLogo === true) {
+    const logo = readFileSync(join(__dirname, '..', '..', '/ascii-logo.txt'), 'utf8')
+
+    process.stdout.write(logo)
+    process.stdout.write(`${EOL}=====================   starting   =====================${EOL}`)
+  }
+
+  // @ts-ignore
   commandLineArguments = global.deepstreamCLI || {}
   handleUUIDProperty(config)
-  handleSSLProperties(config)
+  mergeConnectionOptions(config)
 
-  const services: any = {
-    registeredPlugins: ['authenticationHandler', 'permissionHandler', 'cache', 'storage'],
+  const services = {} as DeepstreamServices
+  services.notifyFatalException = () => {
+    if (config.exitOnFatalError) {
+      process.exit(1)
+    } else {
+      deepstream.emit(EVENT.FATAL_EXCEPTION)
+    }
   }
+  services.logger = handleLogger(config, services)
+  services.monitoring = handleMonitoring(config, services)
 
-  services.cache = new DefaultCache()
-  services.storage = new DefaultStorage()
+  initialLogs.forEach((log) => {
+    switch (log.level) {
+      case LOG_LEVEL.DEBUG:
+        services.logger.debug(log.event, log.message, log.meta)
+        break
+      case LOG_LEVEL.ERROR:
+        services.logger.error(log.event, log.message, log.meta)
+        break
+      case LOG_LEVEL.INFO:
+        services.logger.info(log.event, log.message, log.meta)
+        break
+      case LOG_LEVEL.WARN:
+        services.logger.warn(log.event, log.message, log.meta)
+        break
+      case LOG_LEVEL.FATAL:
+        services.logger.fatal(log.event, log.message, log.meta)
+        break
+    }
+  })
 
-  services.logger = handleLogger(config)
-  handlePlugins(config, services)
-  services.authenticationHandler = handleAuthStrategy(config, services.logger)
-  services.permissionHandler = handlePermissionStrategy(config, services)
+  services.subscriptions = new (resolvePluginClass(config.subscriptions, 'subscriptions', services.logger))(config.subscriptions.options, services, config)
+  services.storage = new (resolvePluginClass(config.storage, 'storage', services.logger))(config.storage.options, services, config)
+  services.cache = new (resolvePluginClass(config.cache, 'cache', services.logger))(config.cache.options, services, config)
+  services.authentication = handleAuthStrategies(config, services)
+  services.permission = handlePermissionStrategies(config, services)
   services.connectionEndpoints = handleConnectionEndpoints(config, services)
+  services.locks = new (resolvePluginClass(config.locks, 'locks', services.logger))(config.locks.options, services, config)
+  services.clusterNode = new (resolvePluginClass(config.clusterNode, 'clusterNode', services.logger))(config.clusterNode.options, services, config)
+  services.clusterRegistry = new (resolvePluginClass(config.clusterRegistry, 'clusterRegistry', services.logger))(config.clusterRegistry.options, services, config)
+  services.clusterStates = new (resolvePluginClass(config.clusterStates, 'clusterStates', services.logger))(config.clusterStates.options, services, config)
+  services.httpService = handleHTTPServer(config, services)
 
-  if (services.cache.apiVersion !== 2) {
-    storageCompatability(services.cache)
-  }
-  if (services.storage.apiVersion !== 2) {
-    storageCompatability(services.storage)
-  }
+  handleCustomPlugins(config, services)
 
   return { config, services }
 }
@@ -60,33 +142,9 @@ export const initialise = function (config: InternalDeepstreamConfig): { config:
 /**
  * Transform the UUID string config to a UUID in the config object.
  */
-function handleUUIDProperty (config: InternalDeepstreamConfig): void {
+function handleUUIDProperty (config: DeepstreamConfig): void {
   if (config.serverName === 'UUID') {
     config.serverName = utils.getUid()
-  }
-}
-
-/**
- * Load the SSL files
- * CLI arguments will be considered.
- */
-function handleSSLProperties (config: InternalDeepstreamConfig): void {
-  const sslFiles = ['sslKey', 'sslCert', 'sslCa']
-  let key
-  let resolvedFilePath
-  let filePath
-  for (let i = 0; i < sslFiles.length; i++) {
-    key = sslFiles[i]
-    filePath = config[key]
-    if (!filePath) {
-      continue
-    }
-    resolvedFilePath = fileUtils.lookupConfRequirePath(filePath)
-    try {
-      config[key] = fs.readFileSync(resolvedFilePath, 'utf8')
-    } catch (e) {
-      throw new Error(`The file path "${resolvedFilePath}" provided by "${key}" does not exist.`)
-    }
   }
 }
 
@@ -94,30 +152,21 @@ function handleSSLProperties (config: InternalDeepstreamConfig): void {
  * Initialize the logger and overwrite the root logLevel if it's set
  * CLI arguments will be considered.
  */
-function handleLogger (config: InternalDeepstreamConfig): Logger {
+function handleLogger (config: DeepstreamConfig, services: DeepstreamServices): DeepstreamLogger {
   const configOptions = (config.logger || {}).options
   if (commandLineArguments.colors !== undefined) {
     configOptions.colors = commandLineArguments.colors
   }
-  let Logger
-  if (config.logger.type === 'default') {
-    Logger = DefaultLogger
-  } else {
-    Logger = resolvePluginClass(config.logger, 'logger')
-  }
-
-  if (configOptions instanceof Array) {
-    // Note: This will not work on options without filename, and
-    // is biased against for the winston logger
-    let options
-    for (let i = 0; i < configOptions.length; i++) {
-      options = configOptions[i].options
-      if (options && options.filename) {
-        options.filename = fileUtils.lookupConfRequirePath(options.filename)
-      }
+  let LoggerClass = defaultPlugins.get('logger')
+  if (config.logger.name === 'pino') {
+    LoggerClass = PinoLogger
+  } else if (config.logger.name || config.logger.path) {
+    LoggerClass = resolvePluginClass(config.logger, 'logger', services.logger)
+    if (!LoggerClass) {
+      throw new Error(`unable to resolve plugin ${config.logger.name || config.logger.path}`)
     }
   }
-  const logger = new Logger(configOptions)
+  const logger = new LoggerClass(configOptions, services, config)
   if (logger.log) {
     logger.debug = logger.debug || logger.log.bind(logger, LOG_LEVEL.DEBUG)
     logger.info = logger.info || logger.log.bind(logger, LOG_LEVEL.INFO)
@@ -125,11 +174,14 @@ function handleLogger (config: InternalDeepstreamConfig): Logger {
     logger.error = logger.error || logger.log.bind(logger, LOG_LEVEL.ERROR)
   }
 
-  if (LOG_LEVEL[config.logLevel]) {
-    // NOTE: config.logLevel has highest priority, compare to the level defined
-    // in the nested logger object
-    config.logLevel = config.logLevel
-    logger.setLogLevel(LOG_LEVEL[config.logLevel])
+  if (LOG_LEVEL[config.logLevel] !== undefined) {
+    if (typeof config.logLevel === 'string') {
+      logger.setLogLevel(LOG_LEVEL[config.logLevel])
+    } else {
+      logger.setLogLevel(config.logLevel)
+    }
+  } else if (config.logLevel) {
+    throw new Error (`Unknown logLevel ${LOG_LEVEL[config.logLevel]}`)
   }
 
   return logger
@@ -137,28 +189,26 @@ function handleLogger (config: InternalDeepstreamConfig): Logger {
 
 /**
  * Handle the plugins property in the config object the connectors.
- * Allowed types: {cache|storage}
  * Plugins can be passed either as a __path__ property or as a __name__ property with
- * a naming convetion: *{cache: {name: 'redis'}}* will be resolved to the
- * npm module *deepstream.io-cache-redis*
+ * a naming convention: *{cache: {name: 'redis'}}* will be resolved to the
+ * npm module *@deepstream/cache-redis*
  * Options to the constructor of the plugin can be passed as *options* object.
  *
  * CLI arguments will be considered.
  */
-function handlePlugins (config: InternalDeepstreamConfig, services: any): void {
+function handleCustomPlugins (config: DeepstreamConfig, services: any): void {
+  services.plugins = {}
+
   if (config.plugins == null) {
     return
   }
-  const plugins = Object.assign({}, config.plugins)
+  const plugins = { ...config.plugins }
 
   for (const key in plugins) {
     const plugin = plugins[key]
     if (plugin) {
-      const PluginConstructor = resolvePluginClass(plugin, key)
-      services[key] = new PluginConstructor(plugin.options)
-      if (services.registeredPlugins.indexOf(key) === -1) {
-        services.registeredPlugins.push(key)
-      }
+      const PluginConstructor = resolvePluginClass(plugin, key, services.logger)
+      services.plugins[key] = new PluginConstructor(plugin.options || {}, services, config)
     }
   }
 }
@@ -168,37 +218,43 @@ function handlePlugins (config: InternalDeepstreamConfig, services: any): void {
  * The type is typically the protocol e.g. ws
  * Plugins can be passed either as a __path__ property or as a __name__ property with
  * a naming convetion: *{amqp: {name: 'my-plugin'}}* will be resolved to the
- * npm module *deepstream.io-connection-my-plugin*
+ * npm module *deepstream.io/connection-my-plugin*
  * Exception: the name *uws* will be resolved to deepstream.io's internal uWebSockets plugin
  * Options to the constructor of the plugin can be passed as *options* object.
  *
  * CLI arguments will be considered.
  */
-function handleConnectionEndpoints (config: InternalDeepstreamConfig, services: any): Array<ConnectionEndpoint> {
+function handleConnectionEndpoints (config: DeepstreamConfig, services: any): DeepstreamConnectionEndpoint[] {
   // delete any endpoints that have been set to `null`
   for (const type in config.connectionEndpoints) {
-    if (!config.connectionEndpoints[type]) {
+    if (config.connectionEndpoints[type] === null) {
       delete config.connectionEndpoints[type]
     }
   }
   if (!config.connectionEndpoints || Object.keys(config.connectionEndpoints).length === 0) {
     throw new Error('No connection endpoints configured')
   }
-  const connectionEndpoints: Array<ConnectionEndpoint> = []
-  for (const connectionType in config.connectionEndpoints) {
-    const plugin = config.connectionEndpoints[connectionType]
 
+  const connectionEndpoints: DeepstreamConnectionEndpoint[] = []
+  for (const plugin of config.connectionEndpoints) {
     plugin.options = plugin.options || {}
 
     let PluginConstructor
-    if (plugin.type === 'default' && connectionType === 'websocket') {
-      PluginConstructor = UWSConnectionEndpoint
-    } else if (plugin.type === 'default' && connectionType === 'http') {
+    if (plugin.type === 'ws-binary') {
+      PluginConstructor = WSBinaryConnectionEndpoint
+    } else if (plugin.type === 'ws-text') {
+      PluginConstructor = WSTextConnectionEndpoint
+    } else if (plugin.type === 'ws-json') {
+      PluginConstructor = WSJSONConnectionEndpoint
+    } else if (plugin.type === 'mqtt') {
+      PluginConstructor = MQTTConnectionEndpoint
+    } else if (plugin.type === 'http') {
       PluginConstructor = HTTPConnectionEndpoint
     } else {
-      PluginConstructor = resolvePluginClass(plugin, 'connection')
+      PluginConstructor = resolvePluginClass(plugin, 'connection', services.logger)
     }
-    connectionEndpoints.push(new PluginConstructor(plugin.options, services))
+
+    connectionEndpoints.push(new PluginConstructor(plugin.options, services, config))
   }
   return connectionEndpoints
 }
@@ -210,14 +266,13 @@ function handleConnectionEndpoints (config: InternalDeepstreamConfig, services: 
  *
  * CLI arguments will be considered.
  */
-function resolvePluginClass (plugin: PluginConfig, type: string): any {
+function resolvePluginClass (plugin: PluginConfig, type: string, logger: DeepstreamLogger): any {
   if (customPlugins.has(plugin.name)) {
     return customPlugins.get(plugin.name)
   }
 
-  // nexe needs *global.require* for __dynamic__ modules
-  // but browserify and proxyquire can't handle *global.require*
-  const req = global && global.require ? global.require : require
+  // Required for bundling via nexe
+  const req = require
   let requirePath
   let pluginConstructor
   let es6Adaptor
@@ -226,22 +281,52 @@ function resolvePluginClass (plugin: PluginConfig, type: string): any {
     es6Adaptor = req(requirePath)
     pluginConstructor = es6Adaptor.default ? es6Adaptor.default : es6Adaptor
   } else if (plugin.name != null && type) {
-    requirePath = `deepstream.io-${type}-${plugin.name}`
-    requirePath = fileUtils.lookupLibRequirePath(requirePath)
-    es6Adaptor = req(requirePath)
+    try {
+      requirePath = fileUtils.lookupLibRequirePath(`@deepstream/${type.toLowerCase()}-${plugin.name.toLowerCase()}`)
+      es6Adaptor = req(requirePath)
+    } catch (firstError) {
+      const firstPath = requirePath
+      try {
+        requirePath = fileUtils.lookupLibRequirePath(`deepstream.io-${type.toLowerCase()}-${plugin.name.toLowerCase()}`)
+        es6Adaptor = req(requirePath)
+      } catch (secondError) {
+        logger.debug(EVENT.CONFIG_ERROR, `Error loading module ${firstPath}: ${firstError}`)
+        logger.debug(EVENT.CONFIG_ERROR, `Error loading module ${requirePath}: ${secondError}`)
+        throw new Error(`Cannot load module ${firstPath} or ${requirePath}`)
+      }
+    }
     pluginConstructor = es6Adaptor.default ? es6Adaptor.default : es6Adaptor
   } else if (plugin.name != null) {
     requirePath = fileUtils.lookupLibRequirePath(plugin.name)
     es6Adaptor = req(requirePath)
     pluginConstructor = es6Adaptor.default ? es6Adaptor.default : es6Adaptor
-  } else if (plugin.type === 'default' && type === 'cache') {
-    pluginConstructor = DefaultCache
-  } else if (plugin.type === 'default' && type === 'storage') {
-    pluginConstructor = DefaultStorage
+  } else if (plugin.type === 'default' && defaultPlugins.has(type as any)) {
+    pluginConstructor = defaultPlugins.get(type as any)
   } else {
-    throw new Error(`Neither name nor path property found for ${type}`)
+    // This error is used to bubble the event due to how tests are written
+    throw new Error(`Neither name nor path property found for ${type}, plugin type: ${plugin.type}`)
   }
   return pluginConstructor
+}
+
+/**
+ * Instantiates the authentication handlers registered for *config.auth.type*
+ *
+ * CLI arguments will be considered.
+ */
+function handleAuthStrategies (config: DeepstreamConfig, services: DeepstreamServices): DeepstreamAuthenticationCombiner {
+  if (commandLineArguments.disableAuth) {
+    config.auth = [{
+      type: 'none',
+      options: {}
+    }]
+  }
+
+  if (!config.auth) {
+    throw new Error('No authentication type specified')
+  }
+
+  return new CombineAuthentication(config.auth.map((auth) => handleAuthStrategy(auth, config, services)))
 }
 
 /**
@@ -249,40 +334,28 @@ function resolvePluginClass (plugin: PluginConfig, type: string): any {
  *
  * CLI arguments will be considered.
  */
-function handleAuthStrategy (config: InternalDeepstreamConfig, logger: Logger): AuthenticationHandler {
-  let AuthenticationHandler
+function handleAuthStrategy (auth: PluginConfig, config: DeepstreamConfig, services: DeepstreamServices): DeepstreamAuthentication {
+  let AuthenticationHandlerClass
 
   const authStrategies = {
-    none: OpenAuthenticationHandler,
-    file: FileAuthenticationHandler, // eslint-disable-line
-    http: HTTPAuthenticationHAndler, // eslint-disable-line
+    none: OpenAuthentication,
+    file: FileBasedAuthentication,
+    http: HttpAuthentication,
+    storage: StorageBasedAuthentication
   }
 
-  if (!config.auth) {
-    throw new Error('No authentication type specified')
-  }
-
-  if (commandLineArguments.disableAuth) {
-    config.auth.type = 'none'
-    config.auth.options = {}
-  }
-
-  if (config.auth.name || config.auth.path) {
-    AuthenticationHandler = resolvePluginClass(config.auth, 'authentication')
-    if (!AuthenticationHandler) {
-      throw new Error(`unable to resolve authentication handler ${config.auth.name || config.auth.path}`)
+  if (auth.name || auth.path) {
+    AuthenticationHandlerClass = resolvePluginClass(auth, 'authentication', services.logger)
+    if (!AuthenticationHandlerClass) {
+      throw new Error(`unable to resolve authentication handler ${auth.name || auth.path}`)
     }
-  } else if (config.auth.type && authStrategies[config.auth.type]) {
-    AuthenticationHandler = authStrategies[config.auth.type]
+  } else if (auth.type && (authStrategies as any)[auth.type]) {
+    AuthenticationHandlerClass = (authStrategies as any)[auth.type]
   } else {
-    throw new Error(`Unknown authentication type ${config.auth.type}`)
+    throw new Error(`Unknown authentication type ${auth.type}`)
   }
 
-  if (config.auth.options && config.auth.options.path) {
-    config.auth.options.path = fileUtils.lookupConfRequirePath(config.auth.options.path)
-  }
-
-  return new AuthenticationHandler(config.auth.options, logger)
+  return new AuthenticationHandlerClass(auth.options, services, config)
 }
 
 /**
@@ -290,13 +363,8 @@ function handleAuthStrategy (config: InternalDeepstreamConfig, logger: Logger): 
  *
  * CLI arguments will be considered.
  */
-function handlePermissionStrategy (config: InternalDeepstreamConfig, services: any): PermissionHandler {
-  let PermissionHandler
-
-  const permissionStrategies = {
-    config: ConfigPermissionHandler,
-    none: OpenPermissionHandler,
-  }
+function handlePermissionStrategies (config: DeepstreamConfig, services: DeepstreamServices): DeepstreamPermission {
+  const permission = config.permission
 
   if (!config.permission) {
     throw new Error('No permission type specified')
@@ -307,39 +375,77 @@ function handlePermissionStrategy (config: InternalDeepstreamConfig, services: a
     config.permission.options = {}
   }
 
-  if (config.permission.name || config.permission.path) {
-    PermissionHandler = resolvePluginClass(config.permission, 'permission')
-    if (!PermissionHandler) {
-      throw new Error(`unable to resolve plugin ${config.permission.name || config.permission.path}`)
+  let PermissionHandlerClass
+
+  const permissionStrategies = {
+    config: ConfigPermission,
+    none: OpenPermission
+  }
+
+  if (permission.name || permission.path) {
+    PermissionHandlerClass = resolvePluginClass(permission, 'permission', services.logger)
+    if (!PermissionHandlerClass) {
+      throw new Error(`unable to resolve plugin ${permission.name || permission.path}`)
     }
-  } else if (config.permission.type && permissionStrategies[config.permission.type]) {
-    PermissionHandler = permissionStrategies[config.permission.type]
+  } else if (permission.type && (permissionStrategies as any)[permission.type]) {
+    PermissionHandlerClass = (permissionStrategies as any)[permission.type]
   } else {
-    throw new Error(`Unknown permission type ${config.permission.type}`)
+    throw new Error(`Unknown permission type ${permission.type}`)
   }
 
-  if (config.permission.options && config.permission.options.path) {
-    config.permission.options.path = fileUtils.lookupConfRequirePath(config.permission.options.path)
-  }
-
-  if (config.permission.type === 'config') {
-    return new PermissionHandler(config, services)
-  } else {
-    return new PermissionHandler(config.permission.options, services)
-  }
-
+  return new PermissionHandlerClass(permission.options, services, config)
 }
 
-export function storageCompatability (storage: StoragePlugin) {
-  const oldGet = storage.get as Function
-  storage.get = (recordName: string, callback: StorageReadCallback) => {
-    oldGet.call(storage, recordName, (error, record) => {
-      callback(error, record ? record._v : -1, record ? record._d : {})
-    })
+function handleMonitoring (config: DeepstreamConfig, services: DeepstreamServices): DeepstreamMonitoring {
+  let MonitoringClass
+
+  const monitoringPlugins = {
+    default: NoopMonitoring,
+    none: NoopMonitoring,
+    http: HTTPMonitoring,
+    log: LogMonitoring
   }
 
-  const oldSet = storage.set as Function
-  storage.set = (recordName: string, version: number, data: any, callback: StorageWriteCallback) => {
-    oldSet.call(storage, recordName, { _v: version, _d: data }, callback)
+  if (config.monitoring.name || config.monitoring.path) {
+    return new (resolvePluginClass(config.monitoring, 'monitoring', services.logger))(config.monitoring.options, services, config)
+  } else if (config.monitoring.type && (monitoringPlugins as any)[config.monitoring.type]) {
+    MonitoringClass = (monitoringPlugins as any)[config.monitoring.type]
+  } else {
+    throw new Error(`Unknown monitoring type ${config.monitoring.type}`)
   }
+
+  return new MonitoringClass(config.monitoring.options, services, config)
+}
+
+function handleHTTPServer (config: DeepstreamConfig, services: DeepstreamServices): DeepstreamHTTPService {
+  let HttpServerClass
+
+  const httpPlugins = {
+    default: NodeHTTP
+  }
+
+  if (commandLineArguments.host) {
+    config.httpServer.options.host = commandLineArguments.host
+  }
+
+  if (commandLineArguments.port) {
+    config.httpServer.options.port = commandLineArguments.port
+  }
+
+  if (config.httpServer.name || config.httpServer.path) {
+    return new (resolvePluginClass(config.httpServer, 'httpServer', services.logger))(config.httpServer.options, services, config)
+  } else if (config.httpServer.type && (httpPlugins as any)[config.httpServer.type]) {
+    HttpServerClass = (httpPlugins as any)[config.httpServer.type]
+  } else if (config.httpServer.type === 'uws') {
+    try {
+      const { UWSHTTP } = require('../services/http/uws/uws-http')
+      HttpServerClass = UWSHTTP
+    } catch (e) {
+      throw new Error('Error loading uws http service, this is most likely due to uWebsocket.js not being supported on this platform')
+    }
+  } else {
+    throw new Error(`Unknown httpServer type ${config.httpServer.type}`)
+  }
+
+  return new HttpServerClass(config.httpServer.options, services, config)
 }

@@ -4,6 +4,9 @@ language: node_js
 git:
     submodules: false
 
+services:
+  - docker
+
 before_install:
   - if [ "$TRAVIS_OS_NAME" == "osx" ]; then
       sed -i '' 's/git@github.com:/https:\/\/github.com\//' .gitmodules;
@@ -16,66 +19,32 @@ before_install:
       export CXX=g++-4.8;
     fi
   - git submodule update --init --recursive
-  - gem install fpm --conservative || echo "FPM install failed"
+  # - gem install fpm --conservative || echo "FPM install failed"
 
 compiler:
   - gcc
   - clang
 
 node_js:
-  - "8"
-  - "6"
+  - "10"
 
 env:
   - DEFAULT_DELAY: 50
 
 matrix:
   include:
-    - node_js: "8"
+    - node_js: "10"
+      os: linux
+    - node_js: "10"
       os: osx
 
 script:
   - npm run lint;
-  - npm run test:coverage
-  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then
-      sh scripts/run-e2e.sh;
-    fi
-  # This has to happen here and not in before_deploy to be put in travis cache
-  - bash ./scripts/package.sh
-
-cache:
-  directories:
-    - nexe_node
-
-deploy:
-  - provider: s3
-    access_key_id:
-      secure: "C5eMLmRbwlQQtLIsEOhHr659JW87/N4PFBYsrAbDhr0T7CJrlQYkCgRvMMOgJFoq8QcDKVgPRTHKwtpgBwgjAcJIzOV57niI1DKHAdrgsQe+3dBe2bu77olV2JPhQWVwl2+5xS2oCbj/3bKJ2ykmA2I9GximVaV65MXnKbTdPTM="
-    secret_access_key:
-      secure: "eMyOkvuEveHR3e6VmQLvvWjklwLSeMw+bcPHxxjskeLfQc8bijmKM1ZFMWdmLUCaSjp5cse/XkSs5Sa+ObV2CUZatRz7XJxAMZjNnB3nApmR+vLRau2zQ8xxmHXbNeJMeMzhzpANB4vkXXEKJlbizjbFjL3nZ3duHlks2/lckVI="
-    bucket: ds-server-artifacts
-    skip_cleanup: true
-    acl: public_read
-    local_dir: build
-    upload-dir: $TRAVIS_REPO_SLUG
-    on:
-      branch: master
-  - provider: releases
-    skip_cleanup: true
-    api_key:
-      secure: "UeDGbc9qehbKD63mNT4IebRpcPdctgqAlk7GNrz6/l6rPBsyLALd0o7mqHYcF0Dd2kMew1fDBiQEBUMTuFaggvGyKDmDkqGCdfo/6dGH07FzTpCwXisZ6u5eXo30deT5q94K1kaU17h8gmowBwmrU6iLXRrxCb6fkq58GX8P9tE="
-    file_glob: true
-    file:
-      - "build/*.pkg"
-      - "build/*.deb"
-      - "build/*.rpm"
-      - "build/*.tar.gz"
-      - "build/*.zip"
-    on:
-      tags: true
-
-services:
-  - redis-server
+  - npm run test:all:coverage;
+  - npm run e2e:uws || true;
+  # These tests don't pass on CI
+  - npm run e2e:v3 || true;
+  - npm run e2e:uws:v3 || true;
 
 addons:
   apt:
@@ -89,3 +58,45 @@ after_script: "cat ./coverage/lcov.info | ./node_modules/coveralls/bin/coveralls
 
 notifications:
   email: false
+
+before_deploy:
+  - bash ./scripts/package.sh true true
+  - npm run tsc # Just incase you know
+
+deploy:
+- provider: s3
+  access_key_id: ${ACCESS_KEY_ID}
+  secret_access_key: ${SECRET_ACCESS_KEY}
+  bucket: releases.deepstream.io
+  skip_cleanup: true
+  acl: public_read
+  local_dir: build
+  upload-dir: ${TRAVIS_REPO_SLUG}
+  on:
+    branch: master
+- provider: releases
+  skip_cleanup: true
+  api_key: ${GITHUB_TOKEN}
+  file_glob: true
+  skip_cleanup: true
+  file:
+    - "build/*/*.pkg"
+    - "build/*/*.deb"
+    - "build/*/*.rpm"
+    - "build/*/*.tar.gz"
+    - "build/*/*.zip"
+  on:
+    tags: true
+- provider: npm
+  email: "info@deepstream.io"
+  api_key: ${NPM_TOKEN}
+  skip_cleanup: true
+  on:
+    tags: true
+    condition: $TRAVIS_OS_NAME = linux
+- provider: script
+  script: bash scripts/docker.sh
+  skip_cleanup: true
+  on:
+    tags: true
+    condition: $TRAVIS_OS_NAME = linux

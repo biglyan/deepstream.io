@@ -5,7 +5,10 @@ os:
   - Visual Studio 2015
 
 install:
-  - ps: Install-Product node 8 x64
+  - ps: Install-Product node 10 x64
+  - curl -L -o nasm.exe https://www.nasm.us/pub/nasm/releasebuilds/2.13.03/win64/nasm-2.13.03-installer-x64.exe 
+  - start /wait nasm.exe /S 
+  - ps: $env:path="C:\Program Files\nasm;$($env:path)" 
   - sed -i "s@git\@github.com:@https:\/\/github.com\/@" .gitmodules
   - git submodule update --init --recursive
   - npm install
@@ -16,21 +19,18 @@ test_script:
   - npm test
   # Artifacts are packaged before before_deploy
   - bash scripts\package.sh
-  - For /d %%d in ( build\** ) do MOVE %%d %cd%
 
 artifacts:
-  - path: 'build\*.zip'
+  - path: 'build\*\*.zip'
     name: 'deepstream.io-release'
 
   - path: '**\*.zip'
 
 deploy:
   - provider: S3
-    access_key_id:
-      secure: cq7lgQP04314hwXwM2l0yiUKRcOkwHeKkDHFULrThxE=
-    secret_access_key:
-      secure: AMUWZVZ4o7lS6f5ogqxTTCqDUR/TYEmPaVXzb7yRRyFUTF/zQFnZHYk1G/j7ie8/
-    bucket: ds-server-artifacts
+    access_key_id: ${ACCESS_KEY_ID}
+    secret_access_key: ${SECRET_ACCESS_KEY}
+    bucket: releases.deepstream.io
     folder: $(APPVEYOR_REPO_NAME)
     on:
       branch: master
@@ -39,9 +39,9 @@ deploy:
   - provider: GitHub
     release: $(APPVEYOR_REPO_TAG_NAME)
     description: 'Release description'
-    auth_token:
-      secure: tZHuiZVCwkXRYMihVyoNrmDxAm6xPbXyop7Plg5uUWIIqA1EoUCrTYd/V+0D1I+Y
-    draft: true
+    auth_token: ${GITHUB_TOKEN}
+    draft: false
+    force_update: true
     artifact: 'deepstream.io-release'
     on:
       appveyor_repo_tag: true
